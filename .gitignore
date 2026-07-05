@@ -20,3 +20,4 @@
 secrets.h
 wifi_credentials.h
 *.env
+.pio/
