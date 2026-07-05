@@ -1,0 +1,50 @@
+{
+  "controller": "Roboteq HDC2450",
+  "profile": "analog-command / single motor / Channel 1",
+  "_about": "Puts the HDC2450 into single-analog-line command mode on AnaCmd1 (DB25 pin 4), 0-5V center-point (0V=full reverse, 2.5V=stop, 5V=full forward) driving Motor 1. Consumed by roto_setup.py.",
+  "_warning": "MOTOR POWER OFF when applying. Values land in RAM only until you pass --save. EVERY mnemonic and value below is DRAFT: verify against the HDC2450 config command reference (RoboRun+ 'Configuration' tab or the Advanced Digital Motor Controllers user manual) before --apply. Wrong config on a 2x150A controller is not a paper mistake.",
+  "_conventions": {
+    "index": "channel/input number as a string, or omitted for global params",
+    "value": "string; use null or \"TODO\" to leave a param unset (tool will SKIP it, never write a placeholder)",
+    "note": "keep the DRAFT/verify provenance here until confirmed on real hardware"
+  },
+  "items": [
+    { "key": "CPRI", "index": "1", "value": "3",
+      "note": "DRAFT-VERIFY: command priority slot 1 = Analog. Confirm the source enum (typ. 0=none,1=Serial/USB,2=RC/Pulse,3=Analog) for this firmware." },
+    { "key": "CPRI", "index": "2", "value": "0",
+      "note": "DRAFT: slot 2 = none, so analog is the sole command authority (serial stays free for telemetry only)." },
+
+    { "key": "AMOD", "index": "1", "value": "1",
+      "note": "DRAFT-VERIFY: analog input 1 mode. 1 = absolute (0..max maps across the range). Confirm enum." },
+    { "key": "AINA", "index": "1", "value": null,
+      "note": "TODO-VERIFY: analog input 1 ACTION = 'Motor Command, Channel 1'. This is a bitmask (action | channel-mask) on ADMC firmware; look up the exact encoding before setting. Left null so the tool skips it until you confirm." },
+    { "key": "AMIN", "index": "1", "value": "250",
+      "note": "DRAFT: input mV mapping to full REVERSE. Tune to your op-amp floor (a little above 0V to leave deadband headroom)." },
+    { "key": "ACTR", "index": "1", "value": "2500",
+      "note": "DRAFT: center (STOP) in mV = 2.5V. This is your fail-safe voltage per SafetyStage." },
+    { "key": "AMAX", "index": "1", "value": "4750",
+      "note": "DRAFT: input mV mapping to full FORWARD. Keep below 5V so op-amp saturation can't peg past max." },
+    { "key": "ADB", "index": "1", "value": "5",
+      "note": "DRAFT: analog deadband % around center — keeps the motor firmly stopped near 2.5V. Coordinate with SafetyStage deadband so they don't fight." },
+    { "key": "APOL", "index": "1", "value": "0",
+      "note": "DRAFT: analog polarity (0=normal). Flip if forward/reverse are inverted vs your persona math." },
+
+    { "key": "MMOD", "index": "1", "value": "0",
+      "note": "DRAFT-VERIFY: Motor 1 operating mode. 0 = open-loop (no encoder). If you later close the loop on speed, revisit." },
+    { "key": "MXMD", "value": "0",
+      "note": "DRAFT: mixing mode OFF (single independent motor, not tank-mix)." },
+    { "key": "MAC", "index": "1", "value": "20000",
+      "note": "DRAFT: acceleration ramp (units depend on mode). Slew for smooth ultra-slow starts — coordinate with PersonaEngine/SafetyStage slew so the gentler of the two governs." },
+    { "key": "MDEC", "index": "1", "value": "20000",
+      "note": "DRAFT: deceleration ramp." },
+    { "key": "MDIR", "index": "1", "value": "0",
+      "note": "DRAFT: motor direction (0=normal). Set on the bench once you know which way the roto should spin for 'forward'." },
+
+    { "key": "ALIM", "index": "1", "value": null,
+      "note": "SET DELIBERATELY (amps): current limit for Motor 1. Fill from YOUR motor's spec — this protects motor, wiring, and battery. No safe default; left null on purpose." },
+    { "key": "OVL", "value": null,
+      "note": "SET DELIBERATELY: over-voltage limit for your bus. Left null." },
+    { "key": "UVL", "value": null,
+      "note": "SET DELIBERATELY: under-voltage limit for your bus. Left null." }
+  ]
+}

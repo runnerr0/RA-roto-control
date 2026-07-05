@@ -47,7 +47,7 @@ normalized to 0.0–1.0 (8-bit: `dmx/255`; 16-bit: `(coarse*256+fine)/65535`).
 ```
 Vout = 2.5 + d * m * 2.5        # 2.5V(stop) → 5.0V(full fwd)
 ```
-Default persona. One DMX channel. Stop at DMX 0.
+One DMX channel. Stop at DMX 0. (Use when the roto only ever spins one way.)
 
 ### P2 — Full Range · Unidirectional · 16-bit (2 ch)
 ```

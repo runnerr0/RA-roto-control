@@ -24,8 +24,8 @@ const char* toString(CommandSource s);
 struct Settings {
   uint8_t  version       = 1;
 
-  // Control
-  Persona  persona       = Persona::FullUni;
+  // Control  (default = bidirectional: 0V=rev, 2.5V=stop, 5V=fwd)
+  Persona  persona       = Persona::FullBi;
   uint16_t dmxStart      = 1;      // 1..512 (footprint 1 or 2 ch by persona)
   float    multiplier    = 1.0f;   // 0..1 live output scale within persona window
   uint8_t  deadband      = 4;      // DMX counts around center (bidirectional)

@@ -21,6 +21,7 @@ dashboard, DMX persona system, WebSocket telemetry, PlatformIO build targets, OT
 | **Analog gain** | Op-amp non-inverting, gain ≈ **1.515** (0–3.3V → 0–5V) | Ref/supply from HDC2450 **5VOut** (DB25 pin 14/25) so full-scale is ratiometric to the controller's own 5V. |
 | **Grounding** | Single-point tie: ESP GND = MCP4725 GND = op-amp GND = HDC2450 **DB25 GND (pin 5)** | Datasheet Note 6: do **not** create a second ground path to battery minus. PoE isolation lets ESP ground float to this reference. |
 | **Command scaling** | Firmware **personas** (voltage-span compression) + live **web multiplier** | Full-range, half-range, quarter-range ultra-slow modes. See `docs/PERSONAS.md`. |
+| **Direction model** | **Bidirectional** default (persona P5): 0V=rev, **2.5V=stop**, 5V=fwd | Confirmed real-volts 0–5V (NOT 0–10V — HDC2450 input tops out at 5V; 5V=full fwd). Default center 2.5V needs no Roborun+ reconfig. Fail-safe = 2.5V = stop. |
 | **Op-amp** | **MCP6002** (RRIO, DIP-8), single 5V supply | Must be **rail-to-rail output** to reach ~5V on a 5V rail. LM358/LM324 rejected (can't swing past ~3.5V). |
 | **Remote enable** | **KF0602D** DC-DC SSR, input buffered by **S8050** off 5V, in series with manual SW1 | Isolated PwrCtrl switching; ESP-dead → power-down fail-safe. See `docs/HARDWARE.md` §7. IRFZ44N rejected (not logic-level). |
 
