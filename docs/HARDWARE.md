@@ -123,7 +123,7 @@ The op-amp input stage is **0–3.3V-agnostic**. If more resolution ever helps, 
  └──────────────────────────────────────────────────────────────────────────┘
 
  Optional / Phase 2:
-   GPIO32 ─► relay coil ─► [relay contacts: VBat ──► HDC2450 Yellow PwrCtrl]   (remote enable)
+   GPIO32 ─► S8050 ─► KF0602D SSR ─► [VBat → SW1 → SSR → HDC2450 Yellow PwrCtrl]  (remote enable, see §7)
    GPIO14/15 ─► MAX3232 ─► DB25 pin 2/3 (RS232 telemetry: amps, volts, temp, faults)
    GPIO35 ◄─ MAX485 ◄─ DMX512 XLR (physical DMX input)
 ```
@@ -139,7 +139,7 @@ A rendered/visual version of this diagram is available as an Artifact (see proje
 | 1 | Olimex ESP32-POE-ISO | Compute host + Ethernet/PoE | ✅ yes |
 | 1 | Roboteq HDC2450 | Motor controller | ✅ yes |
 | 1 | MCP4725 breakout (I2C DAC) | 12-bit analog out | ~$1, order |
-| 1 | RRIO op-amp (MCP6002 / OPA340 / TLV9061) | 0–3.3V → 0–5V gain | check bin |
+| 1 | **MCP6002** op-amp (RRIO, DIP-8) | 0–3.3V → 0–5V gain — **must be rail-to-rail output** | order |
 | 2 | 10 kΩ resistor | op-amp Rg (1) + divider (pair uses 2 more) | ✅ |
 | 1 | 5.1 kΩ resistor | op-amp Rf | ✅ |
 | 3 | 10 kΩ resistor | ÷2 sense divider + spare | ✅ |
@@ -147,13 +147,45 @@ A rendered/visual version of this diagram is available as an Artifact (see proje
 | 1 | 100 nF cap | output RC / decoupling | ✅ |
 | 1 | DB25 male solder connector + hood | HDC2450 I/O plug | order |
 | — | PoE switch/injector (802.3af) | power the Olimex | ✅ likely |
-| 1 | 5V relay + flyback diode (optional) | remote PwrCtrl enable | ✅ bin |
+| 1 | **KF0602D** DC-DC SSR (Kyotto; 3–32V in, 3–60V/2A isolated out) | remote PwrCtrl enable (§7) | ✅ yes |
+| 1 | **S8050** NPN | buffers SSR input at 5V for margin (§7) | ✅ yes |
 | 1 | MAX3232 module (Phase 2) | RS232 telemetry | ✅ bin |
 | 1 | MAX485 module (optional) | physical DMX512 input | ✅ bin |
 
 ---
 
-## 7. Electrical validation checklist
+## 7. Power-enable (PwrCtrl) via KF0602D SSR — optional, recommended
+
+Lets the ESP32 (and E-stop logic) power the HDC2450 on/off remotely. The **KF0602D** is a Kyotto
+KF06-series DC-DC SSR: control **3–32VDC** (1.5 kΩ input), isolated output **3–60VDC / 2A**, 80V
+blocking. Isolation keeps the battery/motor domain off our signal ground. HDC2450 idle draw (~150mA @
+≤50V) sits far inside the 2A/60V rating — **no heatsink needed** at that current.
+
+**Drive the SSR input from 5V (not 3.3V) for margin.** The KF0602D's 3V control minimum is barely
+below a GPIO's 3.3V — fine on the bench, marginal in the field. Buffer it with the **S8050**:
+
+```
+  5VOut (pin14) ──► SSR IN(+)
+                    SSR IN(−) ──► S8050 collector
+  GPIO32 ──[1kΩ]──► S8050 base      (10kΩ base→GND pulldown = off at boot)
+                    S8050 emitter ──► signal GND (DB25 pin5)
+```
+GPIO high → S8050 saturates → ~5V across the SSR input (~3.3mA) → SSR closes.
+
+**Output side (two-layer safety):** keep the mandatory manual **SW1** as master cutoff; put the SSR
+**in series** with it on the Yellow wire:
+```
+  VBat(+) ──► SW1 ──► SSR OUT ──► HDC2450 Yellow / PwrCtrl
+```
+Controller powers up only when **SW1 closed AND ESP asserts the SSR**. ESP dead/reset → SSR opens →
+controller powers down (motor coasts). Paired with the 2.5V fail-safe command = belt-and-suspenders.
+
+**Startup sequence (firmware):** boot → DAC to fail-safe 2.5V (stop) → *then* close SSR to power the
+controller, so it reads "stop" the instant it wakes.
+
+---
+
+## 8. Electrical validation checklist
 
 Do these **in order**, motor power **OFF** until step 6:
 
