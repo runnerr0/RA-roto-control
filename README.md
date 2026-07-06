@@ -1,9 +1,22 @@
 # RA Roto Control
 
-Networked motor-speed controller for **Radiant Atmospheres**. Bridges show-control protocols
-(**DMX512, Art-Net, sACN/E1.31**) to **RS232 serial commands** driving a **Roboteq HDC2450** brushed-DC
-motor controller — with a web interface for setup, DMX personas, network config, live troubleshooting
-(real motor telemetry), and manual override. Sibling project to [raDMX](../raDMX).
+Networked motor-speed controller for **Radiant Atmospheres**. Show-control protocols
+(**DMX512, Art-Net, sACN/E1.31**) feed an **ESP32-POE-ISO** that translates them to **RS232 serial**
+commands driving a **Roboteq HDC2450** brushed-DC motor controller — with a web interface for setup, DMX
+personas, network config, live telemetry, and manual override. Sibling project to [raDMX](../raDMX).
+
+**Everything drives the motor over serial** — and it has proven to be an excellent control interface.
+One signed command (`!G 1 <-1000..+1000>`) is speed *and* direction, the controller's own command-loss
+watchdog self-stops the motor if the sender goes silent, and it streams back real telemetry (amps,
+volts, temp, faults) — all with **no DAC, op-amp, or calibration**. That's why the whole design
+converges on one path:
+
+```
+DMX512 / Art-Net / sACN ─► ESP32-POE-ISO ─► RS232 serial (!G) ─► HDC2450 ─► roto motor
+```
+
+The [host control console](tools/roto-bench/README.md) already drives that serial link on real hardware;
+the ESP32 is the networked front-end that will feed the same serial path (a follow-up, pending parts).
 
 ## What it does
 
