@@ -70,8 +70,11 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  </div>
 
  <div class=row id=oscbox style="margin-top:10px;display:none">
-  <span class=sub>Drift:</span> amplitude <input id=oamp class=num type=number min=0 max=1000 value=150 title="Peak command of the sweep.">
-  · period <input id=operiod class=num type=number min=1 step=1 value=20 title="Seconds per full back-and-forth cycle."> s
+  <span class=sub>Drift:</span>
+  amp <input id=oamp class=num type=number min=0 max=1000 value=150 title="Sweep size — how far it swings each side of center.">
+  · center <input id=ocenter class=num type=number min=-1000 max=1000 value=0 step=10 title="Bias the sweep drifts around. 0 = balanced fwd/rev; +300 = mostly forward, gently breathing.">
+  · period <input id=operiod class=num type=number min=1 step=1 value=20 title="Seconds per full cycle."> s
+  · <select id=owave class=cap title="Sweep shape: sine = smooth, triangle = linear, saw = ramp+snap."><option value=sine>sine</option><option value=triangle>triangle</option><option value=saw>saw</option></select>
   <button id=oset class=clr>Apply</button>
  </div>
 
@@ -117,13 +120,19 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 
 <div class=card><b>Alerts</b><div id=aactive style="margin-bottom:8px"></div><div id=alog></div></div>
 
-<div class=card><b>Profile editor</b> <span class=sub>writes controller RAM · verified read-back</span>
- <table id=prof></table>
- <div class=row style="margin-top:10px"><button id=flash class=clr>Save to flash (%EESAV)</button></div>
- <div id=cfglog class=sub style="margin-top:8px;font-family:ui-monospace,monospace;white-space:pre-wrap"></div>
-</div>
-
 <div class=card><b>Controller health</b><table id=tele></table></div>
+
+<div class=card>
+ <details><summary><b>⚙ Advanced — controller profile</b> &nbsp;<span class=sub>expert config · collapsed by default</span></summary>
+  <p class=sub style="margin:10px 0;white-space:normal">Live-edit the HDC2450's <b>own</b> configuration. Every write goes to controller <b>RAM</b> and is read back to confirm. These are the real motor-controller limits — changing them affects a 2×150 A drive. Use <b>Re-apply safe profile</b> to restore known-good values (e.g. after a controller reset).</p>
+  <table id=prof></table>
+  <div class=row style="margin-top:10px">
+   <button id=reapply class=zero title="Restore ALIM/RWD/AINA to the safe baseline — fixes control drift after a reset.">Re-apply safe profile</button>
+   <button id=flash class=clr title="Persist current RAM values to controller flash so they survive a power cycle.">Save to flash</button>
+  </div>
+  <div id=cfglog class=sub style="margin-top:8px;font-family:ui-monospace,monospace;white-space:pre-wrap"></div>
+ </details>
+</div>
 <div class=card><b>Input diagnostics</b> <span class=sub>same DB25 pin reads analog OR pulse per config</span><table id=diag class=diag></table></div>
 
 <details><summary>Operator guide</summary>
@@ -140,7 +149,15 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 </div><script>
 const $=id=>document.getElementById(id);
 const SRC=[['1','pin15 · Dec2'],['2','pin16 · Dec3'],['3','pin4 · Dec4'],['4','pin17 · Dec5'],['5','pin21'],['6','pin22']];
-const PROF=[['ALIM','1','current limit 0.1A'],['MXPF','1','max power fwd %'],['MXPR','1','max power rev %'],['RWD','','watchdog ms'],['ATRIG','1','amps trigger 0.1A'],['ATGA','1','trigger action aa+16'],['ATGD','1','trigger delay ms']];
+const PROF=[
+ ['ALIM','1','Current limit. Controller folds back power to hold motor amps at/below this. Units 0.1 A → 50 = 5.0 A.'],
+ ['MXPF','1','Max power forward (%). Ceiling on forward duty = top speed. Lower is slower/gentler.'],
+ ['MXPR','1','Max power reverse (%). Same, for reverse.'],
+ ['RWD','','Command-loss watchdog (ms). If serial goes silent this long, the controller stops the motor. 0 disables it.'],
+ ['ATRIG','1','Amps-trigger level (0.1 A). Sustained current that arms the stall/overcurrent action. Must be below ALIM.'],
+ ['ATGA','1','Amps-trigger action. aa + 16 for Motor 1 — aa: 0 none · 1 safety-stop · 2 e-stop · 3 motor-stop. 17 = safety-stop M1.'],
+ ['ATGD','1','Amps-trigger delay (ms). Current must stay above ATRIG this long before the action fires.'],
+];
 const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioning.',
  cruise:'Set a speed; it holds. Stall-protected. Steady running.',
  drift:'Auto slow sweep back and forth. Set amplitude & period. Ambient motion.',
@@ -173,15 +190,16 @@ $('zero').onclick=()=>{$('sl').value=0;$('num').value=0;setCmd(0)};
 $('es').onclick=()=>{$('sl').value=0;setCmd(0);api('/api/estop')};
 $('clr').onclick=()=>api('/api/clear');
 $('cap').onchange=e=>api('/api/cap?v='+e.target.value);
-$('oset').onclick=()=>api('/api/osc?amp='+$('oamp').value+'&period='+$('operiod').value);
+$('oset').onclick=()=>api('/api/osc?amp='+$('oamp').value+'&center='+$('ocenter').value+'&period='+$('operiod').value+'&wave='+$('owave').value);
 $('tset').onclick=()=>api('/api/trip?amps='+$('tamps').value+'&ms='+$('tms').value);
 $('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('theat').value);
 $('rtrip').onclick=()=>api('/api/resettrip');
 $('flash').onclick=()=>api('/api/config_flash');
+$('reapply').onclick=()=>api('/api/reapply');
 
 // ---- profile editor ----
 function applyCfg(k,idx){const v=$('in_'+k).value;if(v==='')return;api('/api/config?key='+k+(idx?'&idx='+idx:'')+'&val='+v)}
-function buildProf(p){$('prof').innerHTML='<tr><th>Param</th><th>Current</th><th>New</th><th></th></tr>'+PROF.map(r=>{const k=r[0];return `<tr><td title="${r[2]}">${k}${r[1]?' '+r[1]:''}</td><td class=cur id=cur_${k}>${p[k]??'—'}</td><td><input class=num id=in_${k} placeholder="${p[k]??''}"></td><td><button class=clr onclick="applyCfg('${k}','${r[1]}')">Apply</button></td></tr>`}).join('');profBuilt=true}
+function buildProf(p){$('prof').innerHTML='<tr><th>Parameter</th><th>Now</th><th>New</th><th></th></tr>'+PROF.map(r=>{const k=r[0];return `<tr><td style="max-width:320px"><b>${k}${r[1]?' '+r[1]:''}</b><div class=sub style="white-space:normal;margin-top:2px">${r[2]}</div></td><td class=cur id=cur_${k}>${p[k]??'—'}</td><td><input class=num id=in_${k} placeholder="${p[k]??''}"></td><td><button class=clr onclick="applyCfg('${k}','${r[1]}')">Set</button></td></tr>`}).join('');profBuilt=true}
 function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();o.frequency.value=880;g.gain.value=.2;o.connect(g);g.connect(a.destination);o.start();setTimeout(()=>{o.stop();a.close()},200)}catch(e){}}
 
 // ---- charts ----
@@ -212,6 +230,7 @@ function deriveAlerts(s,t){active={};
  const tp=(t.temp&&t.temp.length)?Math.max(...t.temp):null;
  if(tp!=null){if(tp>=TH.critHot)raise('hot','crit','Overheating ('+tp+'°C)');else if(tp>=TH.hot)raise('warm','warn','Running hot ('+tp+'°C)')}
  if(t.volts_batt!=null){if(t.volts_batt<TH.vLow)raise('vlow','warn','Battery low ('+t.volts_batt.toFixed(1)+' V)');if(t.volts_batt>TH.vHigh)raise('vhigh','crit','Battery high ('+t.volts_batt.toFixed(1)+' V)')}
+ if(s.mon&&s.expected)for(const k in s.expected){if(s.mon[k]!=null&&String(s.mon[k])!==String(s.expected[k]))raise('drift_'+k,'crit','CONTROL DRIFT — '+k+' is '+s.mon[k]+', expected '+s.expected[k]+' · controller reset? Re-apply safe profile');}
  const keys=Object.keys(active);
  $('aactive').innerHTML=keys.length?keys.map(k=>`<span class="chip ${active[k].sev}">${active[k].msg}</span>`).join(''):'<span class=none>✓ all clear</span>';
  keys.filter(k=>!prevActive[k]).forEach(k=>{if(active[k].sev==='crit')beep();const d=document.createElement('div');d.className='sev-'+active[k].sev;d.textContent=new Date().toLocaleTimeString()+'  '+active[k].msg;$('alog').prepend(d);while($('alog').childElementCount>40)$('alog').lastChild.remove()});

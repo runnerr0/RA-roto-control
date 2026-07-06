@@ -62,7 +62,8 @@ PORT_GLOBS = ["/dev/cu.usbmodemRTQ*", "/dev/cu.usbmodem*", "/dev/cu.usbserial*",
               "/dev/ttyACM*", "/dev/ttyUSB*"]
 # aux ops round-robined one-per-tick: telemetry (?) + profile reads (~)
 AUX = ["?V", "?T", "?FF", "?AI", "?PI", "?AIC",
-       "~ALIM 1", "~MXPF 1", "~MXPR 1", "~RWD", "~ATRIG 1", "~ATGA 1", "~ATGD 1"]
+       "~ALIM 1", "~MXPF 1", "~MXPR 1", "~RWD", "~ATRIG 1", "~ATGA 1", "~ATGD 1",
+       "~AINA 3", "~AINA 4"]
 CONFIG_WHITELIST = {"ALIM", "MXPF", "MXPR", "RWD", "ATRIG", "ATGA", "ATGD", "MAC", "MDEC", "AINA"}
 FAULT_BITS = [(0x01, "OVERHEAT"), (0x02, "OVERVOLT"), (0x04, "UNDERVOLT"),
               (0x08, "SHORT"), (0x10, "ESTOP"), (0x20, "SEPEX-FAULT"),
@@ -82,6 +83,10 @@ class State:
         self.run_mode = "jog"            # jog | cruise | drift | hold
         self.osc_amp = 150.0             # DRIFT amplitude (command units)
         self.osc_period = 20.0           # DRIFT period (seconds)
+        self.osc_center = 0.0            # DRIFT center/bias (command units)
+        self.osc_wave = "sine"           # sine | triangle | saw
+        self.expected = {"ALIM 1": "50", "RWD": "500", "AINA 3": "0", "AINA 4": "0"}
+        self.mon = {}                    # live values of the drift-watched params
         self.tripped = False
         self.trip_reason = ""
         self.trip_amps = TRIP_AMPS_DEFAULT
@@ -104,6 +109,8 @@ class State:
                 "target": self.target, "applied": round(self.applied), "cap": self.cap,
                 "armed": self.armed, "estop": self.estop, "mode": self.mode, "intent": self.intent,
                 "run_mode": self.run_mode, "osc_amp": self.osc_amp, "osc_period": self.osc_period,
+                "osc_center": self.osc_center, "osc_wave": self.osc_wave,
+                "expected": dict(self.expected), "mon": dict(self.mon),
                 "tripped": self.tripped, "trip_reason": self.trip_reason,
                 "trip_amps": self.trip_amps, "trip_ms": self.trip_ms,
                 "temp_trip": self.temp_trip, "heat_budget": self.heat_budget,
@@ -116,6 +123,15 @@ class State:
 
 def clamp(v, lo, hi):
     return lo if v < lo else hi if v > hi else v
+
+
+def wave(name, phase):
+    """Unit waveform in [-1, 1] for the DRIFT oscillator."""
+    if name == "triangle":
+        return (2 / math.pi) * math.asin(math.sin(phase))
+    if name == "saw":
+        return 2 * ((phase / (2 * math.pi)) % 1.0) - 1
+    return math.sin(phase)
 
 
 def decode(query, value, tele):
@@ -234,6 +250,7 @@ class Worker(threading.Thread):
                     target, cap = self.state.target, self.state.cap
                     run_mode = self.state.run_mode
                     osc_amp, osc_period = self.state.osc_amp, self.state.osc_period
+                    osc_center, osc_wave = self.state.osc_center, self.state.osc_wave
                     armed, estop, tripped = self.state.armed, self.state.estop, self.state.tripped
                     trip_amps, trip_ms = self.state.trip_amps, self.state.trip_ms
                     temp_trip, heat_budget, heat_now = self.state.temp_trip, self.state.heat_budget, self.state.heat_now
@@ -274,9 +291,9 @@ class Worker(threading.Thread):
                     tripped, armed = True, False
 
                 # --- command gate + slew ----------------------------------- #
-                if run_mode == "drift":                  # auto slow sweep
+                if run_mode == "drift":                  # auto slow sweep around a center
                     osc_phase += 2 * math.pi * CMD_PERIOD / max(osc_period, 0.5)
-                    src = osc_amp * math.sin(osc_phase)
+                    src = osc_center + osc_amp * wave(osc_wave, osc_phase)
                 else:
                     src = target
                 if estop or tripped or not armed:
@@ -306,19 +323,21 @@ class Worker(threading.Thread):
                         cfg_result = {"key": pending["key"] + (f" {pending['idx']}" if pending.get("idx") else ""),
                                       "val": str(pending["val"]), "readback": rb, "ok": ok,
                                       "t": time.strftime("%H:%M:%S")}
-                    prof_key = prof_val = None
-                    aux_query = aux_val = None
+                    prof_key = prof_val = aux_query = aux_val = mon_label = mon_val = None
                 else:
                     aux = AUX[self._qi % len(AUX)]
                     self._qi += 1
-                    tok = aux.split()[0]
+                    parts = aux.split()
+                    tok = parts[0]
                     key = tok.lstrip("~?")
+                    aidx = parts[1] if len(parts) > 1 else None
                     reply = self._txrx(aux, key + "=")
-                    prof_key = prof_val = aux_query = aux_val = None
+                    prof_key = prof_val = aux_query = aux_val = mon_label = mon_val = None
                     if reply and "=" in reply:
                         val = reply.split("=", 1)[1]
                         if aux[0] == "~":
                             prof_key, prof_val = key, val
+                            mon_label, mon_val = key + (" " + aidx if aidx else ""), val
                         else:
                             aux_query, aux_val = tok, val
 
@@ -335,11 +354,17 @@ class Worker(threading.Thread):
                         decode(aux_query, aux_val, self.state.tele)
                     if prof_key is not None:
                         self.state.profile[prof_key] = prof_val
+                    if mon_label is not None and mon_label in self.state.expected:
+                        self.state.mon[mon_label] = mon_val
                     if cfg_result is not None:
                         self.state.config_log.insert(0, cfg_result)
                         del self.state.config_log[20:]
                         if cfg_result.get("ok") and not pending.get("flash") and cfg_result["readback"] is not None:
                             self.state.profile[pending["key"]] = cfg_result["readback"]
+                            wlabel = pending["key"] + (" " + pending["idx"] if pending.get("idx") else "")
+                            if wlabel in self.state.expected:            # writing sets the new baseline
+                                self.state.expected[wlabel] = cfg_result["readback"]
+                                self.state.mon[wlabel] = cfg_result["readback"]
 
                 time.sleep(CMD_PERIOD)
             except Exception as exc:
@@ -422,6 +447,15 @@ class Handler(BaseHTTPRequestHandler):
             with st.lock:
                 st.osc_amp = clamp(self._num(q, "amp", st.osc_amp), 0, 1000)
                 st.osc_period = clamp(self._num(q, "period", st.osc_period), 0.5, 600)
+                st.osc_center = clamp(self._num(q, "center", st.osc_center), -1000, 1000)
+                w = q.get("wave", [st.osc_wave])[0]
+                st.osc_wave = w if w in ("sine", "triangle", "saw") else st.osc_wave
+            self._json({"ok": True})
+        elif u.path == "/api/reapply":
+            with st.lock:
+                for label, val in st.expected.items():
+                    p = label.split()
+                    st.config_queue.append({"key": p[0], "idx": p[1] if len(p) > 1 else None, "val": val})
             self._json({"ok": True})
         elif u.path == "/api/estop":
             with st.lock:
