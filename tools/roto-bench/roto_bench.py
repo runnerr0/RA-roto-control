@@ -26,8 +26,6 @@ current alone. RUN/HOLD intent + temperature + I2t is the pragmatic answer; an e
 
 localhost only.  Run:  ./roto_bench.py   then open http://127.0.0.1:8791
 """
-from __future__ import annotations
-
 import argparse
 import glob
 import json
@@ -36,8 +34,17 @@ import sys
 import threading
 import time
 from pathlib import Path
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+
+try:
+    from http.server import ThreadingHTTPServer            # Python 3.7+
+except ImportError:                                        # Python 3.6 fallback
+    from http.server import HTTPServer
+    from socketserver import ThreadingMixIn
+
+    class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
 
 try:
     import serial

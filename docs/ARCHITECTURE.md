@@ -85,7 +85,9 @@ ESP32. The console validated `!G` control, `?…` telemetry scaling, the `^RWD` 
 config, and the stall/temperature/I²t trips before any of it goes into firmware. It also stands on its
 own as a runtime control path for a self-contained piece (DRIFT patterns, no DMX needed). The ESP32
 firmware is the **product** target — adds wired Ethernet/PoE, isolation, and DMX/Art-Net/sACN input —
-and reuses the same command/telemetry/safety logic the console proved.
+and reuses the same command/telemetry/safety logic the console proved. The ESP32 build is a
+**follow-up component, pending parts** — the console (run on an always-on host) covers running the piece
+in the meantime.
 
 ## Roadmap
 

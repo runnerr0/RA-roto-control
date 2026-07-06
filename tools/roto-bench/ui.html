@@ -149,6 +149,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 </details>
 </div><script>
 const $=id=>document.getElementById(id);
+function D(x,f){return (x==null)?(f===undefined?'—':f):x}  // legacy-safe nullish helper (avoids ES2020 syntax)
 const SRC=[['1','pin15 · Dec2'],['2','pin16 · Dec3'],['3','pin4 · Dec4'],['4','pin17 · Dec5'],['5','pin21'],['6','pin22']];
 const PROF=[
  ['ALIM','1','Current limit. Controller folds back power to hold motor amps at/below this. Units 0.1 A → 50 = 5.0 A.'],
@@ -166,7 +167,7 @@ const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioni
 const HIST=[],MAXH=400;
 let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={},S=null;
 const TH={hot:60,critHot:80,ampWarn:0.8,vLow:18,vHigh:52};
-function api(p){return fetch(p).then(r=>r.json()).catch(()=>null)}
+function api(p){return new Promise(function(res){try{var x=new XMLHttpRequest();x.open('GET',p);x.onreadystatechange=function(){if(x.readyState===4){try{res(JSON.parse(x.responseText))}catch(e){res(null)}}};x.onerror=function(){res(null)};x.send()}catch(e){res(null)}})}
 function blocked(){return S&&(!S.armed||S.estop||S.tripped)}
 function flashBlk(){const c=$('cmdcard');c.classList.remove('blk');void c.offsetWidth;c.classList.add('blk')}
 
@@ -201,7 +202,7 @@ $('aclear').onclick=()=>{$('alog').innerHTML=''};
 
 // ---- profile editor ----
 function applyCfg(k,idx){const v=$('in_'+k).value;if(v==='')return;api('/api/config?key='+k+(idx?'&idx='+idx:'')+'&val='+v)}
-function buildProf(p){$('prof').innerHTML='<tr><th>Parameter</th><th>Now</th><th>New</th><th></th></tr>'+PROF.map(r=>{const k=r[0];return `<tr><td style="max-width:320px"><b>${k}${r[1]?' '+r[1]:''}</b><div class=sub style="white-space:normal;margin-top:2px">${r[2]}</div></td><td class=cur id=cur_${k}>${p[k]??'—'}</td><td><input class=num id=in_${k} placeholder="${p[k]??''}"></td><td><button class=clr onclick="applyCfg('${k}','${r[1]}')">Set</button></td></tr>`}).join('');profBuilt=true}
+function buildProf(p){$('prof').innerHTML='<tr><th>Parameter</th><th>Now</th><th>New</th><th></th></tr>'+PROF.map(r=>{const k=r[0];return `<tr><td style="max-width:320px"><b>${k}${r[1]?' '+r[1]:''}</b><div class=sub style="white-space:normal;margin-top:2px">${r[2]}</div></td><td class=cur id=cur_${k}>${D(p[k])}</td><td><input class=num id=in_${k} placeholder="${D(p[k],'')}"></td><td><button class=clr onclick="applyCfg('${k}','${r[1]}')">Set</button></td></tr>`}).join('');profBuilt=true}
 function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();o.frequency.value=880;g.gain.value=.2;o.connect(g);g.connect(a.destination);o.start();setTimeout(()=>{o.stop();a.close()},200)}catch(e){}}
 
 // ---- charts ----
@@ -296,7 +297,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  // diagnostics
  const ai=t.ain||[],pi=t.pin||[],ac=t.aic||[];
  $('diag').innerHTML='<tr><th>In</th><th>Source</th><th>Analog mV</th><th>Pulse</th><th>Conv cmd</th></tr>'+
-  SRC.map((r,i)=>{const live=(ai[i]!=null&&ai[i]>60),c=live?'live':'dead';return `<tr><td>${r[0]}</td><td class=${c}>${r[1]}</td><td class=${c}>${ai[i]??'—'}</td><td>${pi[i]??'—'}</td><td>${ac[i]??'—'}</td></tr>`}).join('');
+  SRC.map((r,i)=>{const live=(ai[i]!=null&&ai[i]>60),c=live?'live':'dead';return `<tr><td>${r[0]}</td><td class=${c}>${r[1]}</td><td class=${c}>${D(ai[i])}</td><td>${D(pi[i])}</td><td>${D(ac[i])}</td></tr>`}).join('');
 })}
 paintMode();setInterval(poll,150);poll();
 </script></body></html>

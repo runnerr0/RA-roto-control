@@ -19,6 +19,8 @@ Two files, stdlib + `pyserial` only:
 ## Quick start
 
 ```bash
+./run.sh                         # finds Python 3.6+, installs pyserial if needed, launches
+# — or manually —
 pip install pyserial
 python3 roto_bench.py            # auto-detects the HDC2450 USB port
 # open http://127.0.0.1:8791
@@ -26,6 +28,21 @@ python3 roto_bench.py            # auto-detects the HDC2450 USB port
 
 It starts **DISARMED**. Pick a run mode → **ARM** → drive. Power the motor from a **current-limited
 supply** and keep the controller's hardware E-stop reachable.
+
+## Compatibility (older Macs)
+
+Designed to run on legacy machines — there's **no build step, no native code, and one pure-Python
+dependency**, so CPU architecture and OS age barely matter. `run.sh` handles the fiddly parts.
+
+| Piece | Minimum | Notes |
+|-------|---------|-------|
+| **Python** | **3.6+** | `ThreadingHTTPServer` has a 3.6 fallback; only `pyserial` is required. |
+| **Browser** | **Safari 10+** (2016) / any modern Chrome or Firefox | UI avoids ES2020 syntax (no `?.`/`??`) and uses `XMLHttpRequest`, so old Safari doesn't choke. |
+| **Serial** | USB CDC (`/dev/cu.usbmodem*`) | Auto-detected; pass `--port` to pin it. |
+
+Kept legacy-safe deliberately: no transpiler, no framework, `ui.html` is served as-is and re-read per
+request. If you touch the UI, stick to ES6 (arrow functions/template literals are fine) and avoid
+`?.`, `??`, and other ES2020+ features so it keeps running on old Safari.
 
 ---
 
