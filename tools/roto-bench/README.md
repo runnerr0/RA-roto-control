@@ -56,6 +56,7 @@ Pick the mode that matches what you're doing; each sets the right safety behavio
 | **CRUISE** | Set a speed; it holds. Stall-protected. | Steady running. |
 | **DRIFT** | Auto slow sweep around a center point. Stall-protected. | Ambient / atmospheric motion. |
 | **HOLD** | Maintain position under load; stall-trip off, temperature/I²t still guard. | Holding against a load. |
+| **CREEP** | Very slow under load; stall-trip off, anti-stiction kick on start. | Slow loaded creep. |
 
 ### DRIFT patterns
 DRIFT generates the command server-side: `command = center + amplitude · wave(t)`.
@@ -107,6 +108,25 @@ click. Deliberate edits you make become the new baseline, so it only alarms on d
 > RAM config is lost on any controller reset. For a run, `Save to flash` so it survives a power cycle.
 
 ---
+
+## Slow-loaded operation (CREEP + characterization)
+
+Very slow motion under load is the hardest regime: open-loop command ≈ voltage only tracks speed at
+light load, and slow + loaded draws **high current at near-zero motion** — which electrically looks like
+a stall and would false-trip the current-stall protection. Two tools address this today:
+
+- **CREEP mode** — a latched slow mode that **suppresses the current-stall trip** (temperature + I²t
+  still protect), plus an **anti-stiction kick**: a brief breakaway boost (`kick` level for `ms`) on
+  start-from-stop to overcome static friction, then it settles to your set speed.
+- **Characterization log** — records command · amps · volts · temp to CSV (`logs/`, ~5 Hz). Use it to
+  find the **breakaway command**, the current at slow-loaded, and whether it creeps smoothly. Measure
+  before tuning.
+
+These make open-loop slow-loaded *usable*. The **proper** fix is closed loop: add an **encoder** to the
+HDC2450's ENC inputs, set `MMOD` = closed-loop speed, and `!G` then commands a target RPM the controller
+holds under varying load — which also makes stall detection unambiguous. Encoder + **gearing** (the
+highest-leverage mechanical move) are hardware follow-ups (pending parts); CREEP + logging cover the
+interim. See the slow-speed plan in the project docs.
 
 ## Running the show from this console
 

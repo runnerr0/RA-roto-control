@@ -55,6 +55,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <button class=modebtn id=m_cruise>CRUISE</button>
   <button class=modebtn id=m_drift>DRIFT</button>
   <button class=modebtn id=m_hold>HOLD</button>
+  <button class=modebtn id=m_creep>CREEP</button>
  </div>
  <div class=desc id=modedesc></div>
 
@@ -76,6 +77,13 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   · period <input id=operiod class=num type=number min=1 step=1 value=20 title="Seconds per full cycle."> s
   · <select id=owave class=cap title="Sweep shape: sine = smooth, triangle = linear, saw = ramp+snap."><option value=sine>sine</option><option value=triangle>triangle</option><option value=saw>saw</option></select>
   <button id=oset class=clr>Apply</button>
+ </div>
+
+ <div class=row id=creepbox style="margin-top:10px;display:none">
+  <span class=sub>Creep kick:</span>
+  <input id=ckick class=num type=number min=0 max=1000 value=150 title="Breakaway boost to overcome static friction when starting from a stop.">
+  for <input id=ckms class=num type=number min=0 step=50 value=400 title="Kick duration in ms. 0 = no kick."> ms
+  <button id=cset class=clr>Apply</button>
  </div>
 
  <div class="row" style="margin-top:10px">
@@ -116,6 +124,10 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <div class=stat><div class=k>Run time</div><div class=v id=h_rt>—</div></div>
   <div class=stat title="Thermal budget used. 100% trips."><div class=k>I²t heat</div><div class=v id=h_ht>—</div></div>
  </div>
+</div>
+
+<div class=card><div class="row spread"><b>Characterization log</b><button id=logbtn class=zero>● Start logging</button></div>
+ <div class=sub id=logstat style="margin-top:6px">Records command · amps · volts · temp to a CSV in <code>tools/roto-bench/logs/</code> at ~5 Hz — for mapping command→amps→motion under load and tuning CREEP.</div>
 </div>
 
 <div class=card><div class="row spread"><b>Alerts</b><button id=aclear class=clr style="padding:6px 12px;font-size:13px">Clear log</button></div>
@@ -163,7 +175,9 @@ const PROF=[
 const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioning.',
  cruise:'Set a speed; it holds. Stall-protected. Steady running.',
  drift:'Auto slow sweep back and forth. Set amplitude & period. Ambient motion.',
- hold:'Maintain position under load. Stall-trip OFF; temperature/I²t protect.'};
+ hold:'Maintain position under load. Stall-trip OFF; temperature/I²t protect.',
+ creep:'Very slow under load. Stall-trip OFF (slow+load looks like a stall) — temp/I²t protect. Anti-stiction kick on start.'};
+const MODELIST=['jog','cruise','drift','hold','creep'];
 const HIST=[],MAXH=400;
 let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={},S=null;
 const TH={hot:60,critHot:80,ampWarn:0.8,vLow:18,vHigh:52};
@@ -174,12 +188,13 @@ function flashBlk(){const c=$('cmdcard');c.classList.remove('blk');void c.offset
 // ---- mode ----
 function setMode(m){rmode=m;api('/api/runmode?m='+m);paintMode()}
 function paintMode(){
- ['jog','cruise','drift','hold'].forEach(m=>$('m_'+m).className='modebtn'+(m===rmode?' on':''));
+ MODELIST.forEach(m=>$('m_'+m).className='modebtn'+(m===rmode?' on':''));
  $('modedesc').textContent=MODES[rmode];
  $('oscbox').style.display=(rmode==='drift')?'flex':'none';
+ $('creepbox').style.display=(rmode==='creep')?'flex':'none';
  $('sl').disabled=(rmode==='drift');
 }
-['jog','cruise','drift','hold'].forEach(m=>$('m_'+m).onclick=()=>setMode(m));
+MODELIST.forEach(m=>$('m_'+m).onclick=()=>setMode(m));
 
 // ---- command ----
 $('sl').addEventListener('input',e=>{if(blocked())flashBlk();setCmd(+e.target.value)});
@@ -199,6 +214,8 @@ $('rtrip').onclick=()=>api('/api/resettrip');
 $('flash').onclick=()=>api('/api/config_flash');
 $('reapply').onclick=()=>api('/api/reapply');
 $('aclear').onclick=()=>{$('alog').innerHTML=''};
+$('cset').onclick=()=>api('/api/creep?kick='+$('ckick').value+'&ms='+$('ckms').value);
+$('logbtn').onclick=()=>api('/api/log?on='+((S&&S.logging)?0:1));
 
 // ---- profile editor ----
 function applyCfg(k,idx){const v=$('in_'+k).value;if(v==='')return;api('/api/config?key='+k+(idx?'&idx='+idx:'')+'&val='+v)}
@@ -271,6 +288,8 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  if(s.estop)g='E-STOP';else if(s.tripped)g='TRIPPED';else if(!s.armed)g='DISARMED';
  else if(s.run_mode==='jog'&&s.deadman)g='DEADMAN — no control contact';
  $('gate').textContent=(g&&Math.abs(s.target)>0)?('⛔ output held at 0 — '+g):'';
+ $('logbtn').textContent=s.logging?'■ Stop logging':'● Start logging';
+ if(s.log_name)$('logstat').innerHTML=(s.logging?'● Recording':'■ Stopped')+' → <code>logs/'+s.log_name+'</code> · '+(s.log_rows||0)+' rows';
  // history + heuristics
  const amps=(t.amps_m1!=null)?t.amps_m1:0,v=(t.volts_batt!=null)?t.volts_batt:0;
  HIST.push({a:amps,ap:s.applied});while(HIST.length>MAXH)HIST.shift();

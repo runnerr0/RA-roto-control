@@ -94,6 +94,11 @@ class State:
         self.osc_wave = "sine"           # sine | triangle | saw
         self.expected = {"ALIM 1": "50", "RWD": "500", "AINA 3": "0", "AINA 4": "0"}
         self.mon = {}                    # live values of the drift-watched params
+        self.creep_kick = 150.0          # CREEP anti-stiction breakaway level (command units)
+        self.creep_kick_ms = 400         # CREEP kick duration (ms)
+        self.logging = False             # characterization CSV logging on/off
+        self.log_name = ""
+        self.log_rows = 0
         self.tripped = False
         self.trip_reason = ""
         self.trip_amps = TRIP_AMPS_DEFAULT
@@ -118,6 +123,8 @@ class State:
                 "run_mode": self.run_mode, "osc_amp": self.osc_amp, "osc_period": self.osc_period,
                 "osc_center": self.osc_center, "osc_wave": self.osc_wave,
                 "expected": dict(self.expected), "mon": dict(self.mon),
+                "creep_kick": self.creep_kick, "creep_kick_ms": self.creep_kick_ms,
+                "logging": self.logging, "log_name": self.log_name, "log_rows": self.log_rows,
                 "tripped": self.tripped, "trip_reason": self.trip_reason,
                 "trip_amps": self.trip_amps, "trip_ms": self.trip_ms,
                 "temp_trip": self.temp_trip, "heat_budget": self.heat_budget,
@@ -225,6 +232,17 @@ class Worker(threading.Thread):
                 return None, val
         return None, None
 
+    def _open_log(self):
+        d = Path(__file__).parent / "logs"
+        d.mkdir(exist_ok=True)
+        name = "roto-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
+        f = open(d / name, "w")
+        f.write("time,elapsed_s,mode,target,applied,amps,volts,temp,heat,tripped,trip_reason\n")
+        with self.state.lock:
+            self.state.log_name = name
+            self.state.log_rows = 0
+        return f
+
     def _write_config(self, key, idx, val):
         cmd = f"^{key}" + (f" {idx}" if idx else "") + f" {val}"
         self._txrx(cmd, None)
@@ -245,6 +263,10 @@ class Worker(threading.Thread):
         applied = 0.0
         osc_phase = 0.0
         over_since = None
+        kick_start = None
+        logf = None
+        log_tick = 0
+        log_t0 = 0.0
         while not self._halt.is_set():
             try:
                 if self._ser is None:
@@ -263,8 +285,12 @@ class Worker(threading.Thread):
                     temp_trip, heat_budget, heat_now = self.state.temp_trip, self.state.heat_budget, self.state.heat_now
                     deadman = (now - self.state.last_contact) > DEADMAN_S
                     temps = self.state.tele.get("temp") or []
+                    creep_kick, creep_kick_ms = self.state.creep_kick, self.state.creep_kick_ms
+                    do_log = self.state.logging
                 momentary = (run_mode == "jog")           # hold-to-run
-                intent = "hold" if run_mode == "hold" else "run"   # trip context
+                # CREEP: slow loaded creep looks like a stall, so suppress the current-stall
+                # trip (like HOLD) and rely on temperature + I2t.
+                intent = "hold" if run_mode in ("hold", "creep") else "run"
 
                 # --- fast amps + trip evaluation --------------------------- #
                 amps, amps_raw = self._sample_amps()
@@ -303,6 +329,14 @@ class Worker(threading.Thread):
                     src = osc_center + osc_amp * wave(osc_wave, osc_phase)
                 else:
                     src = target
+                # CREEP anti-stiction kick: brief breakaway boost when starting from a stop
+                if run_mode == "creep" and armed and not (estop or tripped) and abs(src) > 0:
+                    if kick_start is None and abs(applied) < 1:
+                        kick_start = now
+                    if kick_start is not None and (now - kick_start) * 1000.0 < creep_kick_ms:
+                        src = math.copysign(max(abs(src), creep_kick), src)
+                else:
+                    kick_start = None
                 if estop or tripped or not armed:
                     desired = 0.0
                 elif momentary and deadman:
@@ -373,6 +407,30 @@ class Worker(threading.Thread):
                                 self.state.expected[wlabel] = cfg_result["readback"]
                                 self.state.mon[wlabel] = cfg_result["readback"]
 
+                # --- characterization logging (~5 Hz CSV) ------------------ #
+                if do_log and logf is None:
+                    logf, log_t0, log_tick = self._open_log(), now, 0
+                elif not do_log and logf is not None:
+                    logf.close()
+                    logf = None
+                if logf is not None:
+                    log_tick += 1
+                    if log_tick % 3 == 0:
+                        with self.state.lock:
+                            v = self.state.tele.get("volts_batt")
+                            tl = self.state.tele.get("temp") or []
+                            reason = self.state.trip_reason
+                        row = [time.strftime("%H:%M:%S"), "%.2f" % (now - log_t0), run_mode,
+                               int(round(target)), int(round(applied)),
+                               ("%.1f" % amps) if amps is not None else "",
+                               ("%.1f" % v) if v is not None else "",
+                               (max(tl) if tl else ""), "%.0f" % heat_now,
+                               1 if tripped else 0, reason.replace(",", ";")]
+                        logf.write(",".join(str(c) for c in row) + "\n")
+                        logf.flush()
+                        with self.state.lock:
+                            self.state.log_rows += 1
+
                 time.sleep(CMD_PERIOD)
             except Exception as exc:
                 with self.state.lock:
@@ -387,6 +445,11 @@ class Worker(threading.Thread):
                 self._ser = None
                 time.sleep(0.5)
 
+        if logf is not None:
+            try:
+                logf.close()
+            except Exception:
+                pass
         try:
             if self._ser:
                 for _ in range(5):
@@ -448,7 +511,16 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/api/runmode":
             m = q.get("m", ["jog"])[0]
             with st.lock:
-                st.run_mode = m if m in ("jog", "cruise", "drift", "hold") else "jog"
+                st.run_mode = m if m in ("jog", "cruise", "drift", "hold", "creep") else "jog"
+            self._json({"ok": True})
+        elif u.path == "/api/creep":
+            with st.lock:
+                st.creep_kick = clamp(self._num(q, "kick", st.creep_kick), 0, 1000)
+                st.creep_kick_ms = int(clamp(self._num(q, "ms", st.creep_kick_ms), 0, 3000))
+            self._json({"ok": True})
+        elif u.path == "/api/log":
+            with st.lock:
+                st.logging = q.get("on", ["0"])[0] == "1"
             self._json({"ok": True})
         elif u.path == "/api/osc":
             with st.lock:

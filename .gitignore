@@ -25,3 +25,6 @@ secrets.h
 wifi_credentials.h
 *.env
 .pio/
+
+# Console characterization logs
+tools/roto-bench/logs/
