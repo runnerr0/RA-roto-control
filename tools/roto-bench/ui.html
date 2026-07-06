@@ -39,11 +39,14 @@ canvas{width:100%;height:130px;display:block;background:#0d1117;border:1px solid
 details{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:10px 14px}
 summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color:#c9d1d9}
 .q{color:#8b949e;cursor:help}
+@keyframes shk{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(6px)}70%{transform:translateX(-4px)}}
+.blk{animation:shk .32s;box-shadow:0 0 0 2px #da3633 inset;border-color:#da3633!important}
+#gate{color:#f85149;text-align:center;font-size:13px;font-weight:700;min-height:17px;margin:2px 0}
 </style></head><body><div class=wrap>
 <h1>RA Roto — Control Console</h1>
 <p class=sub>HDC2450 Motor 1 · pick a run mode, ARM, then drive. Hover the <span class=q>?</span> marks for help.</p>
 
-<div class=card>
+<div class=card id=cmdcard>
  <div class="row spread"><span>Status: <span id=st class="pill warn">…</span></span>
   <span>Speed cap ±<input id=cap class=cap type=number min=0 max=1000 value=150 title="Ceiling on command magnitude (0-1000). Limits top speed regardless of mode."></span></div>
 
@@ -56,6 +59,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=desc id=modedesc></div>
 
  <div class=val id=cmd>0</div>
+ <div id=gate></div>
  <input id=sl type=range min=-1000 max=1000 value=0 step=1>
  <div class=row style="margin-top:10px">
   <span>Set <input id=num class=num type=number min=-1000 max=1000 value=0 step=10 title="Type a target and Apply (CRUISE/HOLD)."></span>
@@ -142,9 +146,11 @@ const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioni
  drift:'Auto slow sweep back and forth. Set amplitude & period. Ambient motion.',
  hold:'Maintain position under load. Stall-trip OFF; temperature/I²t protect.'};
 const HIST=[],MAXH=400;
-let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={};
+let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={},S=null;
 const TH={hot:60,critHot:80,ampWarn:0.8,vLow:18,vHigh:52};
 function api(p){return fetch(p).then(r=>r.json()).catch(()=>null)}
+function blocked(){return S&&(!S.armed||S.estop||S.tripped)}
+function flashBlk(){const c=$('cmdcard');c.classList.remove('blk');void c.offsetWidth;c.classList.add('blk')}
 
 // ---- mode ----
 function setMode(m){rmode=m;api('/api/runmode?m='+m);paintMode()}
@@ -157,11 +163,11 @@ function paintMode(){
 ['jog','cruise','drift','hold'].forEach(m=>$('m_'+m).onclick=()=>setMode(m));
 
 // ---- command ----
-$('sl').addEventListener('input',e=>setCmd(+e.target.value));
+$('sl').addEventListener('input',e=>{if(blocked())flashBlk();setCmd(+e.target.value)});
 function release(){if(rmode==='jog'){$('sl').value=0;setCmd(0)}}
-$('sl').addEventListener('mouseup',release);$('sl').addEventListener('touchend',release);$('sl').addEventListener('mouseleave',release);
+document.addEventListener('mouseup',release);document.addEventListener('touchend',release);
 function setCmd(v){$('cmd').textContent=v;api('/api/set?g='+v)}
-$('set').onclick=()=>{const v=+$('num').value;$('sl').value=v;setCmd(v)};
+$('set').onclick=()=>{if(blocked())flashBlk();const v=+$('num').value;$('sl').value=v;setCmd(v)};
 $('arm').onclick=()=>api('/api/arm?on='+($('arm').classList.contains('off')?1:0));
 $('zero').onclick=()=>{$('sl').value=0;$('num').value=0;setCmd(0)};
 $('es').onclick=()=>{$('sl').value=0;setCmd(0);api('/api/estop')};
@@ -225,7 +231,7 @@ function hint(s){let h;
 
 function fmtDur(ms){const s=Math.floor(ms/1000);return(s>=60?Math.floor(s/60)+'m ':'')+(s%60)+'s'}
 
-function poll(){api('/api/state').then(s=>{if(!s)return;
+function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  if(s.run_mode&&s.run_mode!==rmode){rmode=s.run_mode;paintMode()}
  const t=s.tele||{};ampLimit=s.amp_limit||5;
  // status
@@ -239,6 +245,10 @@ function poll(){api('/api/state').then(s=>{if(!s)return;
  if(s.run_mode==='drift')$('cmd').textContent=s.applied; // reflect oscillator
  $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
  hint(s);
+ let g='';
+ if(s.estop)g='E-STOP';else if(s.tripped)g='TRIPPED';else if(!s.armed)g='DISARMED';
+ else if(s.run_mode==='jog'&&s.deadman)g='DEADMAN — no control contact';
+ $('gate').textContent=(g&&Math.abs(s.target)>0)?('⛔ output held at 0 — '+g):'';
  // history + heuristics
  const amps=(t.amps_m1!=null)?t.amps_m1:0,v=(t.volts_batt!=null)?t.volts_batt:0;
  HIST.push({a:amps,ap:s.applied});while(HIST.length>MAXH)HIST.shift();
