@@ -77,19 +77,35 @@ config, calibration-free diagnostics, OTA.
 
 ---
 
+## Two control paths
+
+The serial command path, telemetry, and layered safety model are **proven on real hardware today** —
+but via the **host control console** ([`tools/roto-bench/`](../tools/roto-bench/)) over USB, not yet the
+ESP32. The console validated `!G` control, `?…` telemetry scaling, the `^RWD` watchdog, `ALIM`/`ATGA`
+config, and the stall/temperature/I²t trips before any of it goes into firmware. It also stands on its
+own as a runtime control path for a self-contained piece (DRIFT patterns, no DMX needed). The ESP32
+firmware is the **product** target — adds wired Ethernet/PoE, isolation, and DMX/Art-Net/sACN input —
+and reuses the same command/telemetry/safety logic the console proved.
+
 ## Roadmap
 
-- **Phase 0 — Planning + firmware scaffold (current).** Docs + serial control core, compiles clean.
-- **Phase 1 — Serial bench bring-up.** MAX3232 wiring, `?FID` link check, `^RWD` + telemetry, no motor.
-- **Phase 2 — Motor-in-the-loop.** Live `!G`, verify direction/speed/slew/e-stop on the real roto.
-- **Phase 3 — Protocols + web UI.** Art-Net + sACN + optional DMX512; full dashboard; override; OTA.
-- **Phase 4 — Telemetry hardening.** Verify Roboteq value scaling, fault-flag decoding, reconnect logic.
+- **Phase 0 — Planning + firmware scaffold.** ✅ Docs + serial control core, compiles clean.
+- **Phase 1 — Serial bench bring-up.** ✅ *(host console)* link check, `^RWD`, telemetry.
+- **Phase 2 — Motor-in-the-loop.** ✅ *(host console)* live `!G`, direction/speed/slew, 5 A limit, trips.
+  → **Next:** port the proven command/telemetry/safety logic into ESP32 `SerialController`/`SafetyStage`.
+- **Phase 3 — Protocols + web UI (ESP32).** Art-Net + sACN + optional DMX512; dashboard; override; OTA.
+- **Phase 4 — Telemetry hardening.** Fault-flag decoding + reconnect (mostly validated on the console).
 - **Phase 5 — Field hardening.** Enclosure, DB25 hood, E-stop + PwrCtrl SSR, deployment test.
 
 ---
 
-## Open items to confirm before hardware bring-up
+## Confirmed on hardware (via the console)
+- ✅ HDC2450 serial = **115200 8N1**; `?FID` and config queries respond.
+- ✅ `?A` amps ×10 and `?V` battery ×10 scaling confirmed; `?FF` fault flags decoded.
+- ✅ `ALIM` accepts a true **5 A** limit; `ATGA 17` = safety-stop M1; `ATRIG` must be below `ALIM`.
+- ✅ Command priority is factory default **Serial > RC > Analog** (serial wins; no config change needed).
+
+## Still open before ESP32 bring-up
 - Verify GPIO13/14 (UART) free on the exact Olimex ESP32-POE-ISO revision.
-- Confirm HDC2450 serial baud (Roborun+) matches `hdc::BAUD` (115200).
-- Confirm `?A`/`?V` value scaling on your controller and fix `SerialController::poll()` if needed.
-- Confirm whether physical DMX512 input is needed for v1 or Art-Net/sACN only.
+- Whether physical DMX512 input is needed for v1 or Art-Net/sACN only.
+- Consider an **encoder** (closed loop) for unambiguous jam-vs-hold detection.

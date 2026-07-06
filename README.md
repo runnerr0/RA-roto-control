@@ -50,10 +50,12 @@ bench control. Require `pyserial`.
 - **[`tools/roto-setup/`](tools/roto-setup/)** — config tool. Read (`--audit`) or write + verify
   (`--apply`, RAM by default) controller configuration from JSON manifests. **Config-only: never issues a
   motor command.** As-found config catalogs live under `captures/`.
-- **[`tools/roto-bench/`](tools/roto-bench/)** — a localhost web control console (`roto_bench.py` +
-  `ui.html`). Drives Motor 1 over serial with layered safety: arm gate, momentary/latched command, host
-  command cap + slew, browser deadman, E-STOP, and an **overcurrent/stall + temperature + I²t auto-trip**
-  — plus live telemetry, a strip chart, an alert log, and a **live RAM profile editor**.
+- **[`tools/roto-bench/`](tools/roto-bench/)** — a localhost web **control console** (`roto_bench.py` +
+  `ui.html`). Drives Motor 1 over serial with named run modes (**JOG / CRUISE / DRIFT / HOLD**, DRIFT =
+  auto slow-sweep patterns), layered safety (arm gate, command cap + slew, browser deadman, E-STOP,
+  **overcurrent/stall + temperature + I²t auto-trip**, **control-drift detection**), live telemetry +
+  motion/load graphs + alerts, and an Advanced live profile editor. **Also a viable standalone run-time
+  control path** for a self-contained piece — see [`tools/roto-bench/README.md`](tools/roto-bench/README.md).
 
 ```bash
 pip install pyserial
@@ -76,7 +78,11 @@ python3 tools/roto-bench/roto_bench.py              # web console at http://127.
 
 ## Status
 
-**Phase 1 — Bench bring-up (in progress).** Serial link verified; Motor 1 runs over `!G` from the host
-control console with a 5 A current limit and layered auto-trip protection (overcurrent/stall,
-temperature, I²t). The legacy DMX→analog rig is reverse-engineered and documented in
-[`docs/LEGACY-WIRING.md`](docs/LEGACY-WIRING.md). Firmware compiles clean; ESP32 hardware bring-up next.
+**Serial control + safety proven on hardware — via the host console.** Motor 1 runs over `!G` from the
+[control console](tools/roto-bench/README.md) with a 5 A current limit and layered auto-trip protection
+(overcurrent/stall, temperature, I²t) plus control-drift detection. Telemetry, `ALIM`/`ATGA` config, and
+the `^RWD` watchdog are all validated. The legacy DMX→analog rig is reverse-engineered in
+[`docs/LEGACY-WIRING.md`](docs/LEGACY-WIRING.md).
+
+The **ESP32-POE-ISO firmware** (the product — adds Ethernet/PoE + DMX/Art-Net/sACN) compiles clean;
+next step is porting the proven console logic into firmware. See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
