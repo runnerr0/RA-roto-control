@@ -1,12 +1,12 @@
 # RA Roto Control — Project Guide (CLAUDE.md)
 
-Networked analog motor-speed controller for **Radiant Atmospheres**. Bridges show-control
-protocols (physical DMX512, Art-Net, sACN/E1.31) to a **0–5V analog command** driving a
-**Roboteq HDC2450** brushed-DC motor controller, with a web interface for setup, DMX persona
-selection, network config, live troubleshooting, and manual override.
+Networked motor-speed controller for **Radiant Atmospheres**. Bridges show-control protocols
+(physical DMX512, Art-Net, sACN/E1.31) to **RS232 serial commands** driving a **Roboteq HDC2450**
+brushed-DC motor controller, with a web interface for setup, DMX persona selection, network config,
+live troubleshooting (real motor telemetry), and manual override.
 
-Spiritual sibling of **raDMX** (`~/temp/raDMX`) — reuse its patterns: ESPAsyncWebServer
-dashboard, DMX persona system, WebSocket telemetry, PlatformIO build targets, OTA.
+Spiritual sibling of **raDMX** (`~/temp/raDMX`) — reuse its patterns: ESPAsyncWebServer dashboard,
+DMX persona system, WebSocket telemetry, PlatformIO build targets, OTA.
 
 ---
 
@@ -16,17 +16,19 @@ dashboard, DMX persona system, WebSocket telemetry, PlatformIO build targets, OT
 |----------|--------|-----|
 | **Compute host** | Olimex **ESP32-POE-ISO** | Wired Ethernet + PoE + galvanic isolation on one cable; instant boot; watchdog recovery; robust flash (no SD); reuses raDMX. |
 | **Motor controller** | Roboteq **HDC2450** (2×150A) | Existing hardware. We use **1 channel** (Motor 1). |
-| **Command interface** | **Single 0–5V analog line → AnaCmd1 (DB25 pin 4)** | Datasheet: one analog line does speed **and** direction via center-point (0V=full rev, 2.5V=stop, 5V=full fwd). No separate dir/enable wire needed. |
-| **DAC** | **MCP4725** 12-bit I2C @ 3.3V | Native ESP32 DAC (GPIO25/26) is consumed by the Ethernet RMII bus. 12-bit (4096 steps) is 16× finer than native 8-bit — critical for smooth ultra-slow modes. |
-| **Analog gain** | Op-amp non-inverting, gain ≈ **1.515** (0–3.3V → 0–5V) | Ref/supply from HDC2450 **5VOut** (DB25 pin 14/25) so full-scale is ratiometric to the controller's own 5V. |
-| **Grounding** | Single-point tie: ESP GND = MCP4725 GND = op-amp GND = HDC2450 **DB25 GND (pin 5)** | Datasheet Note 6: do **not** create a second ground path to battery minus. PoE isolation lets ESP ground float to this reference. |
-| **Command scaling** | Firmware **personas** (voltage-span compression) + live **web multiplier** | Full-range, half-range, quarter-range ultra-slow modes. See `docs/PERSONAS.md`. |
-| **Direction model** | **Bidirectional** default (persona P5): 0V=rev, **2.5V=stop**, 5V=fwd | Confirmed real-volts 0–5V (NOT 0–10V — HDC2450 input tops out at 5V; 5V=full fwd). Default center 2.5V needs no Roborun+ reconfig. Fail-safe = 2.5V = stop. |
-| **Op-amp** | **MCP6002** (RRIO, DIP-8), single 5V supply | Must be **rail-to-rail output** to reach ~5V on a 5V rail. LM358/LM324 rejected (can't swing past ~3.5V). |
-| **Remote enable** | **KF0602D** DC-DC SSR, input buffered by **S8050** off 5V, in series with manual SW1 | Isolated PwrCtrl switching; ESP-dead → power-down fail-safe. See `docs/HARDWARE.md` §7. IRFZ44N rejected (not logic-level). |
+| **Control interface** | **RS232 serial** — `!G 1 <-1000..+1000>` | One signed command = speed **and** direction (0 = stop). No DAC/op-amp/calibration. Full resolution. Gives telemetry back. |
+| **Level shift** | **MAX3232** between ESP32 UART and DB25 pins 2/3 | HDC2450 serial is true RS232 (±V), not 3.3V TTL. USB isn't usable (classic ESP32 can't host it). |
+| **Direction model** | **Bidirectional** default (persona P5): -1000 rev / **0 stop** / +1000 fwd | Confirmed real behavior: center = stop. Serial makes this trivial (signed command). |
+| **Motor fail-safe** | HDC2450 **`^RWD` command-loss watchdog** (primary) + firmware STOP (secondary) | Serial watchdog actually works (analog mode doesn't) — controller self-stops if we go silent. |
+| **Telemetry** | Query `?A ?V ?T ?FF` over serial | Real motor amps / battery V / temp / fault flags in the troubleshooting UI. |
+| **Command scaling** | Firmware **personas** (command-range compression) + live **web multiplier** | Full / half / quarter ultra-slow ranges. See `docs/PERSONAS.md`. |
+| **Remote enable** | **KF0602D** DC-DC SSR, input buffered by **S8050** off 5V, in series with manual SW1 | Isolated PwrCtrl switching; ESP-dead → power-down. See `docs/HARDWARE.md` §5. |
 
-**Rejected:** Native ESP32 DAC (Ethernet pin conflict). Raspberry Pi host (SD-corruption/boot/isolation
-risks in festival deployment; overkill for one motor). 0–10V stage (HDC2450 is 0–5V).
+**Rejected:** Analog 0–5V path (DAC + op-amp) — **superseded by serial**: serial has a working command-loss
+watchdog, gives telemetry, and needs no calibration or analog BOM. Raspberry Pi host (SD/boot/isolation
+risks). 0–10V stage (moot — serial). Native ESP32 DAC (moot — serial).
+
+> The MCP4725 + MCP6002 are no longer on the control path. Keep them for another project.
 
 ---
 
@@ -34,40 +36,51 @@ risks in festival deployment; overkill for one motor). 0–10V stage (HDC2450 is
 
 ```
 DMX512 (RS485) ─┐
-Art-Net ────────┼─► ESP32-POE-ISO ─I2C─► MCP4725 ─► Op-amp (×1.515) ─► AnaCmd1 (pin 4) ─► HDC2450 ─► Motor
-sACN/E1.31 ─────┘        │                (0–3.3V)      (0–5.0V)              │
-                         └─ ADC sense ◄── ÷2 divider ◄── (op-amp output tap)  │
-                                                                    GND ref = DB25 pin 5
+Art-Net ────────┼─► ESP32-POE-ISO ─UART─► MAX3232 ─► DB25 pin3 (Rx) ─► HDC2450 ─► Motor 1
+sACN/E1.31 ─────┘        ▲                          ◄─ DB25 pin2 (Tx) ◄─ (telemetry: ?A ?V ?T ?FF)
+                         │                             GND = DB25 pin5
+                    WebServer (config · override · live telemetry)
 ```
 
-Full pinout, BOM, wiring diagram, and electrical validation: **`docs/HARDWARE.md`**.
+Full pinout, wiring diagram, BOM, and bring-up procedure: **`docs/HARDWARE.md`**.
 
 ---
 
+## Firmware layout (`firmware/`)
+
+`main.cpp` wires the modules; each is single-responsibility (see `docs/ARCHITECTURE.md`):
+`InputMux` (source arbitration) → `PersonaEngine` (→ command [-1,1]) → `SafetyStage` (slew + stop) →
+`SerialController` (`!G` + telemetry + `^RWD`). Network: `NetworkManager` (ETH), `ArtnetInput`,
+`SacnInput`. `ConfigStore` (NVS), `WebInterface` (async HTTP + WS).
+
 ## Operational Rules
 
-- **PlatformIO + Arduino-ESP32**, C++. Match raDMX conventions. Never `npm`/`npx` for firmware.
-- **Verify GPIO assignments against the specific Olimex board revision schematic before soldering.**
-  Ethernet RMII owns GPIO 0, 12, 18, 19, 21, 22, 23, 25, 26, 27 — never reuse these.
-- **Hardware first**: confirm wiring with a multimeter (continuity, then 0/2.5/5V at AnaCmd1 with
-  motor power OFF) before trusting firmware. (Hard-won lesson: crossed wires waste days of firmware debugging.)
-- **Motor safety**: in analog mode the HDC2450 **holds the last commanded voltage** if the ESP32 hangs —
-  its command-loss watchdog only guards *serial*. So: firmware watchdog + a defined **fail-safe voltage**
-  (command 2.5V = stop on boot/link-loss/fault) are mandatory, not optional.
-- **Never command motor power during bench validation** until the analog chain is scope/meter-verified.
+- **PlatformIO + Arduino-ESP32 2.0.x** (pinned via `platform = espressif32@^6.9`), C++. Never `npm`/`npx`.
+  The classic `ETH.begin()` + `esp_task_wdt_init(timeout, panic)` signatures depend on this — update
+  `NetworkManager`/`main.cpp` if you bump to core 3.x.
+- **Verify GPIO assignments against your Olimex board revision** before soldering. Ethernet RMII owns
+  GPIO 0,12,17,18,19,21,22,23,25,26,27 — never reuse. UART is on GPIO13(RX)/14(TX).
+- **Hardware first**: confirm the RS232 link with a serial loopback / a manual `?FID` query before
+  trusting motor commands. Meter/scope the MAX3232 lines. (Hard-won lesson: verify wiring before firmware.)
+- **Motor safety is layered**: (1) HDC2450 `^RWD` watchdog self-stops on command loss; (2) firmware
+  drives command to 0 on boot/link-loss/e-stop/fault; (3) `!G` is sent continuously to feed the watchdog.
+  Never remove the continuous send or the `^RWD` config.
+- **Never enable PwrCtrl before the firmware is commanding STOP.** Boot order: serial up → command 0 →
+  power controller.
 - Keep files under 500 lines. Docs in `docs/`, firmware in `firmware/`, no working files in root.
 
 ## Build & Test
 
 ```bash
-# From firmware/ (once scaffolded)
-pio run -e olimex_poe_iso            # build
+cd firmware
+pio run -e olimex_poe_iso            # build  (verified: RAM 13.6%, Flash 67.9%)
 pio run -e olimex_poe_iso -t upload  # flash
 pio device monitor                   # serial console
 ```
 
 ## Project Status
 
-**Phase 0 — Planning & validation (current).** Decisions locked, docs written, wiring validated on paper.
-Next: bench-prototype the analog chain (MCP4725 + op-amp) and meter-verify 0/2.5/5V before any firmware
-motor command. See `docs/ARCHITECTURE.md` → Roadmap.
+**Phase 0 — Planning + firmware scaffold (current).** Decisions locked; firmware compiles clean for the
+ESP32-POE-ISO with the full serial control core, Art-Net/sACN parsers, safety/fail-safe, and a minimal
+web dashboard. Nothing has run on hardware yet. Next: bench bring-up — MAX3232 wiring, RS232 loopback,
+then live `!G` + telemetry against the HDC2450. See `docs/ARCHITECTURE.md` → Roadmap.

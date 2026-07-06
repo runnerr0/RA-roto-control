@@ -1,23 +1,22 @@
 #include "PersonaEngine.h"
-#include "Config.h"
 #include <math.h>
 
 namespace {
-  // Forward (unidirectional) window span above 2.5V for each persona.
+  // Forward (unidirectional) command fraction for each persona (0..1).
   float uniSpan(Persona p) {
     switch (p) {
       case Persona::FullUni:
-      case Persona::FullUni16:    return 2.5f;
-      case Persona::SlowHalfUni:  return 1.25f;
-      case Persona::SlowQuartUni: return 0.625f;
-      default:                    return 2.5f;
+      case Persona::FullUni16:    return 1.0f;
+      case Persona::SlowHalfUni:  return 0.5f;
+      case Persona::SlowQuartUni: return 0.25f;
+      default:                    return 1.0f;
     }
   }
-  // Bidirectional half-span each side of 2.5V.
-  float biHalfSpan(Persona p) {
+  // Bidirectional command fraction each side of stop (0..1).
+  float biSpan(Persona p) {
     switch (p) {
-      case Persona::SlowBi: return 0.625f;
-      default:              return 2.5f;   // FullBi, FullBi16
+      case Persona::SlowBi: return 0.25f;
+      default:              return 1.0f;   // FullBi, FullBi16
     }
   }
   float clampf(float v, float lo, float hi) {
@@ -33,14 +32,14 @@ bool PersonaEngine::isBidirectional(Persona p) {
   return p == Persona::FullBi || p == Persona::SlowBi || p == Persona::FullBi16;
 }
 
-float PersonaEngine::toVoltage(const Settings& s, float d) {
+float PersonaEngine::toCommand(const Settings& s, float d) {
   d = clampf(d, 0.0f, 1.0f);
   const float m = clampf(s.multiplier, 0.0f, 1.0f);
 
   if (isBidirectional(s.persona)) {
-    // Center at DMX mid; apply a continuous deadband, then scale to [-1,1].
-    const float dev  = d - 0.5f;                       // -0.5..0.5
-    const float dz   = float(s.deadband) / 255.0f;     // deadband as fraction
+    // Center at DMX mid; continuous deadband, then scale to [-1,1].
+    const float dev = d - 0.5f;                        // -0.5..0.5
+    const float dz  = float(s.deadband) / 255.0f;      // deadband as fraction
     float c;
     if (fabsf(dev) <= dz || dz >= 0.5f) {
       c = 0.0f;
@@ -49,12 +48,10 @@ float PersonaEngine::toVoltage(const Settings& s, float d) {
       c = sign * (fabsf(dev) - dz) / (0.5f - dz);      // -1..1
     }
     if (s.invert) c = -c;
-    const float v = cmd::VOLT_STOP + c * m * biHalfSpan(s.persona);
-    return clampf(v, cmd::VOLT_MIN, cmd::VOLT_MAX);
+    return clampf(c * m * biSpan(s.persona), -1.0f, 1.0f);
   }
 
-  // Unidirectional: window sits above the 2.5V stop point.
-  float du = s.invert ? (1.0f - d) : d;
-  const float v = cmd::VOLT_STOP + du * m * uniSpan(s.persona);
-  return clampf(v, cmd::VOLT_STOP, cmd::VOLT_MAX);
+  // Unidirectional: forward only (0..+1).
+  const float du = s.invert ? (1.0f - d) : d;
+  return clampf(du * m * uniSpan(s.persona), 0.0f, 1.0f);
 }

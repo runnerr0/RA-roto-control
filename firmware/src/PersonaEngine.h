@@ -1,6 +1,7 @@
-// PersonaEngine.h — static mapping from normalized DMX input to a target voltage.
-// Handles persona window, multiplier, deadband, and invert. Temporal shaping
-// (slew) and fail-safe live in SafetyStage.
+// PersonaEngine.h — static mapping from normalized DMX input to a normalized motor
+// command in [-1,1] (0 = stop, +1 = full forward, -1 = full reverse). Handles persona
+// range, multiplier, deadband, and invert. Temporal shaping (slew) + fail-safe live in
+// SafetyStage. SerialController scales [-1,1] to the HDC2450's !G range (+/-1000).
 #pragma once
 #include "ControlTypes.h"
 
@@ -9,6 +10,6 @@ namespace PersonaEngine {
   uint8_t channelCount(Persona p);
   bool    isBidirectional(Persona p);
 
-  // d = normalized DMX value in [0,1]. Returns commanded voltage in [0,5].
-  float toVoltage(const Settings& s, float d);
+  // d = normalized DMX value in [0,1]. Returns command in [-1,1].
+  float toCommand(const Settings& s, float d);
 }

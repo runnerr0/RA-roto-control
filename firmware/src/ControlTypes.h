@@ -1,15 +1,15 @@
-// ControlTypes.h — shared enums, persisted Settings, and live ControlState.
+// ControlTypes.h — shared enums, persisted Settings, live ControlState, Telemetry.
 #pragma once
 #include <stdint.h>
 
-// DMX personas (see docs/PERSONAS.md). Each encodes direction model, resolution, and window.
+// DMX personas (see docs/PERSONAS.md). Each encodes direction model, resolution, and range.
 enum class Persona : uint8_t {
-  FullUni      = 1,  // P1: 1ch 8-bit, 2.5->5.0V forward
-  FullUni16    = 2,  // P2: 2ch 16-bit, 2.5->5.0V forward
-  SlowHalfUni  = 3,  // P3: 1ch 8-bit, 2.5->3.75V
-  SlowQuartUni = 4,  // P4: 1ch 8-bit, 2.5->3.125V
-  FullBi       = 5,  // P5: 1ch 8-bit, 0<-2.5->5V
-  SlowBi       = 6,  // P6: 1ch 8-bit, +/-25% around 2.5V
+  FullUni      = 1,  // P1: 1ch 8-bit, 0..+100% forward
+  FullUni16    = 2,  // P2: 2ch 16-bit, 0..+100% forward
+  SlowHalfUni  = 3,  // P3: 1ch 8-bit, 0..+50%
+  SlowQuartUni = 4,  // P4: 1ch 8-bit, 0..+25%
+  FullBi       = 5,  // P5: 1ch 8-bit, -100%..stop..+100%
+  SlowBi       = 6,  // P6: 1ch 8-bit, +/-25%
   FullBi16     = 7,  // P7: 2ch 16-bit bidirectional
 };
 
@@ -22,16 +22,16 @@ const char* toString(CommandSource s);
 
 // Persisted configuration (stored as a versioned blob in NVS via ConfigStore).
 struct Settings {
-  uint8_t  version       = 1;
+  uint8_t  version       = 2;      // bump invalidates older/incompatible blobs
 
-  // Control  (default = bidirectional: 0V=rev, 2.5V=stop, 5V=fwd)
+  // Control (default = bidirectional: -100% rev / stop / +100% fwd)
   Persona  persona       = Persona::FullBi;
   uint16_t dmxStart      = 1;      // 1..512 (footprint 1 or 2 ch by persona)
-  float    multiplier    = 1.0f;   // 0..1 live output scale within persona window
+  float    multiplier    = 1.0f;   // 0..1 live output scale within persona range
   uint8_t  deadband      = 4;      // DMX counts around center (bidirectional)
-  float    slewLimitVps  = 2.0f;   // V/s max rate-of-change; 0 = disabled
+  float    slewLimit     = 2.0f;   // command units/sec (full range in 0.5s); 0 = off
   bool     invert        = false;
-  float    failSafeV     = cmdStopDefault(); // voltage on link-loss/boot/fault
+  // Fail-safe command is always cmd::STOP (0) — the HDC2450 also self-stops via ^RWD.
 
   // Network
   bool     useStaticIp   = false;
@@ -43,27 +43,30 @@ struct Settings {
   bool     dmx512Enabled = false;
   uint16_t artnetUniverse= 0;      // 15-bit port-address (Net<<8 | SubUni)
   uint16_t sacnUniverse  = 1;      // 1..63999
-  uint8_t  sacnPriority  = 100;    // informational; lowest priority accepted
+  uint8_t  sacnPriority  = 100;
+};
 
-  // Calibration (from Phase 1 bench validation)
-  uint16_t dacCode0V     = 0;      // MCP4725 code producing 0.000V at AnaCmd1
-  uint16_t dacCode5V     = 4030;   // MCP4725 code producing 5.000V at AnaCmd1
-
-  static constexpr float cmdStopDefault() { return 2.5f; }
+// Telemetry queried back from the HDC2450 over serial.
+struct Telemetry {
+  bool     valid      = false;
+  float    motorAmps  = 0.0f;   // ?A  (channel 1)
+  float    batteryV   = 0.0f;   // ?V  (main battery)
+  int      tempC      = 0;      // ?T
+  uint32_t faultFlags = 0;      // ?FF (bitfield: overheat, overvolt, short, estop, ...)
 };
 
 // Live state snapshot for telemetry / web UI.
 struct ControlState {
   CommandSource activeSource = CommandSource::FailSafe;
-  float    normalizedD  = 0.0f;   // 0..1 input after mux
-  float    targetV      = 2.5f;   // persona output, pre-safety
-  float    outputV      = 2.5f;   // commanded voltage, post-safety
-  float    measuredV    = 0.0f;   // sense ADC reading
-  bool     ethLinkUp    = false;
-  bool     failSafe     = true;
-  bool     overrideOn   = false;
-  bool     dacHealthy   = false;
-  bool     estopActive  = false;
-  uint32_t uptimeS      = 0;
-  char     ip[16]       = "0.0.0.0";
+  float    normalizedD    = 0.0f;   // 0..1 input after mux
+  float    targetCmd      = 0.0f;   // -1..1 persona output, pre-safety
+  float    outputCmd      = 0.0f;   // -1..1 commanded, post-safety (0 = stop)
+  Telemetry tele;
+  bool     ethLinkUp      = false;
+  bool     failSafe       = true;
+  bool     overrideOn     = false;
+  bool     controllerOnline = false; // HDC2450 answering on serial
+  bool     estopActive    = false;
+  uint32_t uptimeS        = 0;
+  char     ip[16]         = "0.0.0.0";
 };

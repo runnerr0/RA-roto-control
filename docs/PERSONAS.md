@@ -1,88 +1,86 @@
 # DMX Personas & Speed Scaling
 
-How incoming DMX/Art-Net/sACN values map to the 0–5V analog command. Personas select a **voltage
-span** (coarse behaviour + ultra-slow modes); a live **web multiplier** trims within that span.
+How incoming DMX/Art-Net/sACN values map to the HDC2450 motor command. Personas select a **command
+range** (coarse behaviour + ultra-slow modes); a live **web multiplier** trims within that range.
+
+The firmware works in a **normalized command `c ∈ [-1, 1]`** (0 = stop, +1 = full forward, −1 = full
+reverse). `SerialController` scales that to the HDC2450's `!G` range: `g = round(c × 1000)`.
 
 ---
 
 ## Concept
 
-The HDC2450 speed is proportional to command voltage. Two levers:
+The HDC2450 speed is proportional to the command value. Two levers:
 
-1. **Persona** — picks the voltage window the full DMX range maps onto. A *narrower* window = lower top
-   speed but the **same DMX resolution spread over a smaller speed band** → finer, slower control.
-   This is the "ultra-slow mode."
-2. **Multiplier** (web UI, 0.00–1.00, live) — scales the mapped output within the persona window,
-   for on-the-fly trimming without changing personas.
+1. **Persona** — picks the command window the full DMX range maps onto. A *narrower* window = lower top
+   speed but the **same DMX resolution spread over a smaller speed band** → finer, slower control
+   ("ultra-slow mode").
+2. **Multiplier** (web UI, 0.00–1.00, live) — scales the mapped output within the persona window.
 
-Because the DAC is **12-bit (4096 steps)**, even a narrow window keeps plenty of resolution:
+Serial gives effectively continuous resolution — `!G` spans −1000..+1000 (2000 steps) and the
+controller's internal loop is finer still — so even a narrow ultra-slow window stays smooth (no DAC
+quantization to worry about; this is a win over the retired analog path).
 
-| Persona window | Voltage span | DAC codes across span | Feel |
-|----------------|-------------|-----------------------|------|
-| Full | 2.5→5.0V (uni) or 0→5.0V (bi) | 2048 / 4096 | Full speed |
-| Half (slow) | 2.5→3.75V | 1024 | Half top speed, fine |
-| Quarter (ultra-slow) | 2.5→3.125V | 512 | Crawl, very fine |
-
-(For comparison, native 8-bit DAC would give only 64 codes on the quarter window — the reason we went MCP4725.)
+| Persona window | Command range | Feel |
+|----------------|--------------|------|
+| Full | 0 → ±1000 | Full speed |
+| Half (slow) | 0 → ±500 | Half top speed, fine |
+| Quarter (ultra-slow) | 0 → ±250 | Crawl, very fine |
 
 ---
 
 ## Direction models
 
-The HDC2450 analog input is **center-point at 2.5V** by default:
+- **Bidirectional** (default): DMX center = stop; below center = one direction, above = the other;
+  speed grows toward the extremes. `c ∈ [-1, 1]`.
+- **Unidirectional**: forward only, `c ∈ [0, 1]` (DMX 0 = stop).
 
-- **Bidirectional** (default): `0V = full reverse · 2.5V = stop · 5V = full forward`.
-- **Unidirectional** (roto spins one way): configure Roborun+ so `0V…5V = 0%…100% forward`, OR keep the
-  center default and only use the `2.5V→5.0V` half. Firmware persona flag `direction: uni|bi` picks the math.
+Firmware persona flag picks the math; no Roborun+ reconfig needed.
 
 ---
 
 ## Persona definitions (v1)
 
-Each persona defines: DMX footprint (channels), resolution (8/16-bit), direction model, and output window.
-`Vout` is the voltage delivered to AnaCmd1 (post op-amp). `m` = web multiplier (0–1). `d` = DMX value
-normalized to 0.0–1.0 (8-bit: `dmx/255`; 16-bit: `(coarse*256+fine)/65535`).
+`c` = normalized command in [-1,1]. `m` = web multiplier (0–1). `d` = DMX normalized to 0.0–1.0
+(8-bit: `dmx/255`; 16-bit: `(coarse*256+fine)/65535`).
 
-### P1 — Full Range · Unidirectional (1 ch, 8-bit)
+### P1 — Full · Unidirectional (1 ch, 8-bit)
 ```
-Vout = 2.5 + d * m * 2.5        # 2.5V(stop) → 5.0V(full fwd)
+c = d * m               # 0 (stop) → +1 (full fwd)
 ```
 One DMX channel. Stop at DMX 0. (Use when the roto only ever spins one way.)
 
-### P2 — Full Range · Unidirectional · 16-bit (2 ch)
+### P2 — Full · Unidirectional · 16-bit (2 ch)
 ```
-Vout = 2.5 + d16 * m * 2.5      # coarse+fine channels for buttery ramps
+c = d16 * m             # coarse+fine channels for buttery ramps
 ```
-Use when smooth slow acceleration matters. Channel N = coarse, N+1 = fine.
 
 ### P3 — Ultra-Slow ½ · Unidirectional (1 ch, 8-bit)
 ```
-Vout = 2.5 + d * m * 1.25       # 2.5V → 3.75V, half top speed, full DMX spread
+c = d * m * 0.5         # 0 → +0.5
 ```
 
 ### P4 — Ultra-Slow ¼ · Unidirectional (1 ch, 8-bit)
 ```
-Vout = 2.5 + d * m * 0.625      # 2.5V → 3.125V, crawl
+c = d * m * 0.25        # 0 → +0.25
 ```
 
-### P5 — Full Range · Bidirectional (1 ch, 8-bit)
+### P5 — Full · Bidirectional (1 ch, 8-bit) — **default persona**
 ```
-c  = (d - 0.5) * 2              # -1..+1, center at DMX 128
-Vout = 2.5 + c * m * 2.5        # 0V(full rev) .. 2.5V(stop) .. 5.0V(full fwd)
+b = deadband((d - 0.5) * 2)   # -1..+1, center at DMX 128
+c = b * m                     # -1 (full rev) .. 0 (stop) .. +1 (full fwd)
 ```
-Deadband around DMX 128 handled in firmware (configurable ± counts) to guarantee a true stop.
+Continuous deadband around DMX 128 (configurable ± counts) guarantees a true stop at center.
 
-### P6 — Ultra-Slow Bidirectional (1 ch, 8-bit)
+### P6 — Ultra-Slow · Bidirectional (1 ch, 8-bit)
 ```
-c  = (d - 0.5) * 2
-Vout = 2.5 + c * m * 0.625      # ±25% speed either direction, fine
+c = deadband((d - 0.5) * 2) * m * 0.25    # +/-25% either direction, fine
 ```
 
-### P7 — 16-bit Bidirectional (2 ch)
+### P7 — Full · Bidirectional · 16-bit (2 ch)
 16-bit version of P5 for smooth reversible slow motion.
 
-> All personas clamp `Vout` to `[0, 5]` and are calibrated against `DAC_STOP_CODE` / `DAC_MAX_CODE` from
-> the HARDWARE.md validation step (measured, not assumed).
+> All personas clamp `c` to the valid range. `SerialController` maps `c → !G g` (±1000).
 
 ---
 
@@ -90,23 +88,26 @@ Vout = 2.5 + c * m * 0.625      # ±25% speed either direction, fine
 
 | Param | Range | Effect |
 |-------|-------|--------|
-| `persona` | P1–P7 | Active mapping |
+| `persona` | P1–P7 | Active mapping (default P5) |
 | `dmxStart` | 1–512 | Start address (footprint = 1 or 2 ch) |
 | `multiplier` | 0.00–1.00 | Live output scale within persona window |
-| `deadband` | 0–20 DMX counts | Stop zone around center (bidirectional) |
-| `slewLimit` | 0–5 V/s | Max rate-of-change on Vout (protects mechanics) |
+| `deadband` | 0–40 DMX counts | Stop zone around center (bidirectional) |
+| `slewLimit` | command units/s | Max rate-of-change on `c` (protects mechanics); 0 = off |
 | `invert` | bool | Flip direction sense |
-| `failSafeV` | 0/2.5V | Voltage on link-loss / boot / fault (default = stop) |
 
-**Slew limiting** is a first-class safety/quality feature: it caps how fast the commanded voltage can
-change, preventing a snapped DMX jump from slamming the motor. Applied after persona math, before the DAC.
+The **fail-safe command is always 0 (stop)** — no separate parameter. On boot, link-loss, source-stale,
+or e-stop, `SafetyStage` slews the command to 0, and the HDC2450's `^RWD` watchdog independently stops
+the motor if our command stream dies.
+
+**Slew limiting** is applied after persona math, before the command is sent — a snapped DMX jump can't
+slam the motor.
 
 ---
 
 ## Manual override (web UI)
 
-A big **OVERRIDE** toggle takes control away from DMX/Art-Net/sACN and exposes a direct slider
-(-100%…+100% or 0…100% per direction model). While engaged:
-- Incoming network/DMX values are ignored (but still displayed for reference).
+A master **OVERRIDE** toggle takes control away from DMX/Art-Net/sACN and exposes a direct slider
+(0 = full reverse, 50 = stop, 100 = full forward, fed through the active persona). While engaged:
+- Incoming network/DMX values are ignored (still displayed for reference).
 - The same `slewLimit` and clamps apply.
-- A visible banner + timeout option prevents leaving it engaged accidentally.
+- A visible banner marks the override state.
