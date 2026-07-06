@@ -121,6 +121,11 @@ a stall and would false-trip the current-stall protection. Two tools address thi
 - **Characterization log** — records command · amps · volts · temp to CSV (`logs/`, ~5 Hz). Use it to
   find the **breakaway command**, the current at slow-loaded, and whether it creeps smoothly. Measure
   before tuning.
+- **Characterization sweep** — an operator-triggered routine (ARM required; aborts instantly on any
+  trip / disarm / E-STOP; clamped to the speed cap) that steps the command through a range, records the
+  settled amps per step, and computes the **breakaway command** + a **suggested CREEP kick**. Save
+  results as named **presets** (`presets/`); the most recent loads on startup as a baseline for
+  comparison (display only — it never moves the motor).
 
 These make open-loop slow-loaded *usable*. The **proper** fix is closed loop: add an **encoder** to the
 HDC2450's ENC inputs, set `MMOD` = closed-loop speed, and `!G` then commands a target RPM the controller

@@ -28,3 +28,6 @@ wifi_credentials.h
 
 # Console characterization logs
 tools/roto-bench/logs/
+
+# Console characterization presets
+tools/roto-bench/presets/

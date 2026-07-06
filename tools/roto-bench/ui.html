@@ -130,6 +130,31 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=sub id=logstat style="margin-top:6px">Records command · amps · volts · temp to a CSV in <code>tools/roto-bench/logs/</code> at ~5 Hz — for mapping command→amps→motion under load and tuning CREEP.</div>
 </div>
 
+<div class=card id=sweepcard><b>Characterization sweep <span class=q title="Steps the command up in increments, waits, and records the settled amps at each level — maps command→load for THIS motor. It MOVES THE MOTOR; requires ARM. Auto-enables logging.">?</span></b>
+ <div class=row style="margin-top:6px">
+  <span class=sub>step</span> <input id=swstep class=num type=number min=1 max=1000 value=25 title="Command increment per step.">
+  <span class=sub>· dwell</span> <input id=swdwell class=num type=number min=0.2 step=0.1 value=1.5 title="Seconds per step: first ~40% settles, remainder is averaged."> <span class=sub>s</span>
+  <span class=sub>· max</span> <input id=swmax class=num type=number min=0 max=1000 value=300 title="Top command level. Clamped to the speed cap.">
+  <span class=sub>·</span> <select id=swdir class=cap title="Direction(s) to characterize."><option value=fwd>fwd</option><option value=rev>rev</option><option value=both>both</option></select>
+ </div>
+ <div class=row style="margin-top:10px">
+  <button id=swrun class=zero title="Runs an automated command sweep. MOVES THE MOTOR — ARM first.">▶ Run characterization</button>
+  <button id=swstop class=clr>Abort sweep</button>
+  <span class=sub id=swstat>idle</span>
+ </div>
+ <canvas id=cswp style="margin-top:10px"></canvas>
+ <div class=cap2>Command→amps curve for the current load · <b>blue</b> = sweep points · <u>amber</u> dashed = est. breakaway command.</div>
+ <table id=swtab></table>
+ <div class=row style="margin-top:10px">
+  <span class=sub>Save preset</span>
+  <input id=swname class=num style="width:130px" placeholder="name" title="Name for this characterization preset.">
+  <button id=swsave class=clr>Save</button>
+  <span class=sub>·</span> <select id=swpresets class=cap title="Saved characterization presets."></select>
+  <button id=swload class=clr>Load</button>
+ </div>
+ <div class=sub id=swbase style="margin-top:8px">Baseline: —</div>
+</div>
+
 <div class=card><div class="row spread"><b>Alerts</b><button id=aclear class=clr style="padding:6px 12px;font-size:13px">Clear log</button></div>
  <div id=aactive style="margin:8px 0"></div><div id=alog></div></div>
 
@@ -217,6 +242,15 @@ $('aclear').onclick=()=>{$('alog').innerHTML=''};
 $('cset').onclick=()=>api('/api/creep?kick='+$('ckick').value+'&ms='+$('ckms').value);
 $('logbtn').onclick=()=>api('/api/log?on='+((S&&S.logging)?0:1));
 
+// ---- characterization sweep ----
+$('swrun').onclick=()=>{if(!S||!S.armed){flashBlk();return}
+ api('/api/sweep?on=1&step='+$('swstep').value+'&dwell='+$('swdwell').value+'&max='+$('swmax').value+'&dir='+$('swdir').value)};
+$('swstop').onclick=()=>api('/api/sweep?on=0');
+$('swsave').onclick=()=>{const n=$('swname').value;if(!n)return;api('/api/preset_save?name='+encodeURIComponent(n)).then(loadPresetList)};
+$('swload').onclick=()=>{const n=$('swpresets').value;if(!n)return;api('/api/preset_load?name='+encodeURIComponent(n))};
+function loadPresetList(){api('/api/preset_list').then(r=>{if(!r||!r.presets)return;const sel=$('swpresets'),cur=sel.value;
+ sel.innerHTML=r.presets.map(p=>`<option value="${p}">${p}</option>`).join('');if(cur)sel.value=cur})}
+
 // ---- profile editor ----
 function applyCfg(k,idx){const v=$('in_'+k).value;if(v==='')return;api('/api/config?key='+k+(idx?'&idx='+idx:'')+'&val='+v)}
 function buildProf(p){$('prof').innerHTML='<tr><th>Parameter</th><th>Now</th><th>New</th><th></th></tr>'+PROF.map(r=>{const k=r[0];return `<tr><td style="max-width:320px"><b>${k}${r[1]?' '+r[1]:''}</b><div class=sub style="white-space:normal;margin-top:2px">${r[2]}</div></td><td class=cur id=cur_${k}>${D(p[k])}</td><td><input class=num id=in_${k} placeholder="${D(p[k],'')}"></td><td><button class=clr onclick="applyCfg('${k}','${r[1]}')">Set</button></td></tr>`}).join('');profBuilt=true}
@@ -236,6 +270,18 @@ function drawMotion(){const c=$('cmot'),x=c.getContext('2d'),W=c.width=c.clientW
  if(HIST.length<2)return;const dx=W/(MAXH-1);
  x.strokeStyle='#3fb950';x.lineWidth=2;x.beginPath();
  HIST.forEach((p,i)=>{const y=H/2-(p.ap/1000)*(H/2);i?x.lineTo(i*dx,y):x.moveTo(i*dx,y)});x.stroke();x.lineWidth=1}
+function drawSweep(res,breakaway){const c=$('cswp'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height,PADL=34,PADB=18;x.clearRect(0,0,W,H);
+ x.strokeStyle='#30363d';x.beginPath();x.moveTo(PADL,H-PADB);x.lineTo(W,H-PADB);x.moveTo(PADL,4);x.lineTo(PADL,H-PADB);x.stroke();
+ x.fillStyle='#8b949e';x.font='11px monospace';x.fillText('amps',6,12);x.fillText('cmd',W-28,H-4);
+ if(!res||!res.length)return;
+ const cmds=res.map(p=>Math.abs(p.cmd)),amps=res.map(p=>Math.abs(p.amps));
+ const cmax=Math.max(1,Math.max(...cmds)),amax=Math.max(0.5,Math.max(...amps));
+ const px=v=>PADL+(v/cmax)*(W-PADL-8),py=v=>(H-PADB)-(v/amax)*(H-PADB-6);
+ if(breakaway!=null){const bx=px(Math.abs(breakaway));x.strokeStyle='#d29922';x.setLineDash([5,4]);x.beginPath();x.moveTo(bx,4);x.lineTo(bx,H-PADB);x.stroke();x.setLineDash([]);
+  x.fillStyle='#d29922';x.fillText('brk '+breakaway,Math.min(bx+3,W-56),12)}
+ const pts=res.map(p=>({x:px(Math.abs(p.cmd)),y:py(Math.abs(p.amps))})).sort((a,b)=>a.x-b.x);
+ x.strokeStyle='#58a6ff';x.lineWidth=2;x.beginPath();pts.forEach((p,i)=>i?x.lineTo(p.x,p.y):x.moveTo(p.x,p.y));x.stroke();x.lineWidth=1;
+ x.fillStyle='#58a6ff';pts.forEach(p=>{x.beginPath();x.arc(p.x,p.y,2.5,0,6.29);x.fill()})}
 
 // ---- alerts ----
 function raise(k,sev,msg){active[k]={sev,msg}}
@@ -304,6 +350,14 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('h_rt').textContent=runStart?fmtDur(performance.now()-runStart):'idle';
  $('h_ht').textContent=(s.heat_budget>0)?Math.round(100*s.heat_now/s.heat_budget)+'%':'off';
  drawMotion();drawLoad();deriveAlerts(s,t);
+ // sweep
+ $('swstat').textContent=D(s.sweep_status,'idle')+(s.sweep_active?(' · '+Math.round((s.sweep_progress||0)*100)+'%'):'');
+ $('swrun').disabled=!!s.sweep_active;
+ const sr=s.sweep_results||[];
+ $('swtab').innerHTML=sr.length?('<tr><th>cmd</th><th>amps</th></tr>'+sr.map(r=>`<tr><td>${r.cmd}</td><td>${r.amps}</td></tr>`).join('')+((s.sweep_breakaway!=null)?`<tr><td><b>breakaway</b></td><td><b>${s.sweep_breakaway}</b></td></tr><tr><td>sugg. kick</td><td>${D(s.sweep_kick)}</td></tr>`:'')):'';
+ drawSweep(sr,(s.sweep_breakaway!=null)?s.sweep_breakaway:null);
+ if(s.baseline){const b=s.baseline;$('swbase').innerHTML='Baseline: <b>'+D(b.name)+'</b> ('+D(b.timestamp,'')+') · breakaway '+D(b.breakaway)+' · kick '+D(b.suggested_kick)+' · '+((b.results&&b.results.length)||0)+' pts';}
+ else $('swbase').textContent='Baseline: —';
  // profile
  if(!profBuilt&&s.profile&&Object.keys(s.profile).length)buildProf(s.profile);
  if(profBuilt)PROF.forEach(r=>{const c=$('cur_'+r[0]);if(c)c.textContent=(s.profile&&s.profile[r[0]]!=null)?s.profile[r[0]]:'—'});
@@ -318,5 +372,5 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('diag').innerHTML='<tr><th>In</th><th>Source</th><th>Analog mV</th><th>Pulse</th><th>Conv cmd</th></tr>'+
   SRC.map((r,i)=>{const live=(ai[i]!=null&&ai[i]>60),c=live?'live':'dead';return `<tr><td>${r[0]}</td><td class=${c}>${r[1]}</td><td class=${c}>${D(ai[i])}</td><td>${D(pi[i])}</td><td>${D(ac[i])}</td></tr>`}).join('');
 })}
-paintMode();setInterval(poll,150);poll();
+paintMode();loadPresetList();setInterval(poll,150);poll();
 </script></body></html>

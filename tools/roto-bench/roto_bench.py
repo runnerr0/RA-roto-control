@@ -65,6 +65,7 @@ HEAT_BASELINE = 2.0          # amps below which the I2t bucket leaks
 HEAT_BUDGET_DEFAULT = 600.0  # A^2*s; ~28 s at 5 A; 0 disables
 HOST, PORT = "127.0.0.1", 8791
 UI_FILE = Path(__file__).parent / "ui.html"
+PRESET_DIR = Path(__file__).parent / "presets"
 PORT_GLOBS = ["/dev/cu.usbmodemRTQ*", "/dev/cu.usbmodem*", "/dev/cu.usbserial*",
               "/dev/ttyACM*", "/dev/ttyUSB*"]
 # aux ops round-robined one-per-tick: telemetry (?) + profile reads (~)
@@ -114,6 +115,19 @@ class State:
         self.profile = {}                # last-read controller config values
         self.config_queue = []           # pending {key,idx,val} or {flash:True}
         self.config_log = []             # recent write results
+        # --- characterization sweep (server-side, runs inside Worker) --- #
+        self.sweep_active = False        # operator-triggered sweep running
+        self.sweep_status = "idle"       # idle | starting | running... | done | aborted
+        self.sweep_step = 25             # command increment per step
+        self.sweep_dwell = 1.5           # seconds per step (settle + average)
+        self.sweep_max = 300             # top command level (clamped to cap)
+        self.sweep_dir = "fwd"           # fwd | rev | both
+        self.sweep_progress = 0.0        # 0..1 fraction of levels completed
+        self.sweep_level = 0             # command level currently under test
+        self.sweep_results = []          # [{cmd, amps}] from the last sweep
+        self.sweep_breakaway = None      # est. breakaway command
+        self.sweep_kick = None           # suggested CREEP kick (magnitude)
+        self.baseline = None             # most-recent/loaded preset (display only)
 
     def snapshot(self):
         with self.lock:
@@ -132,11 +146,71 @@ class State:
                 "connected": self.connected, "deadman": self.deadman,
                 "tele": dict(self.tele), "profile": dict(self.profile),
                 "config_log": list(self.config_log[:8]),
+                "sweep_active": self.sweep_active, "sweep_status": self.sweep_status,
+                "sweep_step": self.sweep_step, "sweep_dwell": self.sweep_dwell,
+                "sweep_max": self.sweep_max, "sweep_dir": self.sweep_dir,
+                "sweep_progress": round(self.sweep_progress, 3), "sweep_level": self.sweep_level,
+                "sweep_results": list(self.sweep_results),
+                "sweep_breakaway": self.sweep_breakaway, "sweep_kick": self.sweep_kick,
+                "baseline": dict(self.baseline) if self.baseline else None,
             }
 
 
 def clamp(v, lo, hi):
     return lo if v < lo else hi if v > hi else v
+
+
+def build_levels(step, mx, direction, cap):
+    """Signed command levels for a characterization sweep, clamped to cap.
+    step, 2*step, ... up to min(mx, cap); negated for rev; fwd+rev for both."""
+    step = max(1, int(step))
+    mx = int(min(mx, cap))
+    fwd = list(range(step, mx + 1, step))
+    if not fwd and mx > 0:
+        fwd = [mx]
+    rev = [-x for x in fwd]
+    if direction == "rev":
+        return rev
+    if direction == "both":
+        return fwd + rev
+    return fwd
+
+
+def compute_breakaway(results, step):
+    """Breakaway heuristic: the first level whose averaged amps exceeds 1.3x the
+    amps at the lowest non-zero step (first clear sign of real load/motion).
+    Suggested CREEP kick = |breakaway| + one step of margin. Returns (cmd, kick)."""
+    pts = [r for r in results if r["cmd"] > 0] or [r for r in results if r["cmd"] < 0]
+    pts = sorted(pts, key=lambda r: abs(r["cmd"]))
+    if len(pts) < 2:
+        return None, None
+    base = abs(pts[0]["amps"])
+    breakaway = None
+    for r in pts[1:]:
+        if base > 0 and abs(r["amps"]) > 1.3 * base:
+            breakaway = r["cmd"]
+            break
+    if breakaway is None:                       # never crossed -> use the top level
+        breakaway = pts[-1]["cmd"]
+    kick = int(round(abs(breakaway) + max(1, int(step))))
+    return breakaway, kick
+
+
+def preset_names():
+    if not PRESET_DIR.exists():
+        return []
+    return sorted(p.stem for p in PRESET_DIR.glob("*.json"))
+
+
+def most_recent_preset():
+    if not PRESET_DIR.exists():
+        return None
+    files = sorted(PRESET_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return files[0] if files else None
+
+
+def safe_preset_name(name):
+    return "".join(c for c in name if c.isalnum() or c in "-_")[:40]
 
 
 def wave(name, phase):
@@ -267,6 +341,15 @@ class Worker(threading.Thread):
         logf = None
         log_tick = 0
         log_t0 = 0.0
+        # characterization sweep locals (persist across ticks)
+        sweep_running = False
+        sweep_levels = []
+        sweep_idx = 0
+        sweep_phase = "ramp"
+        sweep_sum = 0.0
+        sweep_n = 0
+        sweep_t0 = 0.0
+        sweep_results = []
         while not self._halt.is_set():
             try:
                 if self._ser is None:
@@ -287,6 +370,9 @@ class Worker(threading.Thread):
                     temps = self.state.tele.get("temp") or []
                     creep_kick, creep_kick_ms = self.state.creep_kick, self.state.creep_kick_ms
                     do_log = self.state.logging
+                    sweep_active = self.state.sweep_active
+                    sweep_step, sweep_dwell = self.state.sweep_step, self.state.sweep_dwell
+                    sweep_max, sweep_dir = self.state.sweep_max, self.state.sweep_dir
                 momentary = (run_mode == "jog")           # hold-to-run
                 # CREEP: slow loaded creep looks like a stall, so suppress the current-stall
                 # trip (like HOLD) and rely on temperature + I2t.
@@ -337,6 +423,67 @@ class Worker(threading.Thread):
                         src = math.copysign(max(abs(src), creep_kick), src)
                 else:
                     kick_start = None
+
+                # --- characterization sweep state machine ------------------ #
+                # When active, the sweep produces `src` INSTEAD of the normal
+                # target/oscillator, but still flows through the SAME gate + slew
+                # below. `armed` is the safety anchor: lose it (disarm/estop/trip)
+                # and we abort immediately; command then returns to 0 via the gate.
+                if sweep_active and (not armed or estop or tripped):
+                    sweep_active = sweep_running = False
+                    with self.state.lock:
+                        self.state.sweep_active = False
+                        self.state.sweep_status = "aborted"
+                if sweep_active:
+                    if not sweep_running:                    # rising edge -> initialise
+                        sweep_levels = build_levels(sweep_step, sweep_max, sweep_dir, cap)
+                        sweep_idx, sweep_phase = 0, "ramp"
+                        sweep_sum, sweep_n, sweep_t0 = 0.0, 0, now
+                        sweep_results = []
+                        sweep_running = True
+                        kick_start = None
+                        with self.state.lock:
+                            self.state.logging = True        # capture the raw CSV
+                    if sweep_idx >= len(sweep_levels):       # all levels done -> ramp to 0
+                        src = 0.0
+                        if abs(applied) < 1:
+                            breakaway, kick = compute_breakaway(sweep_results, sweep_step)
+                            with self.state.lock:
+                                self.state.sweep_results = list(sweep_results)
+                                self.state.sweep_breakaway = breakaway
+                                self.state.sweep_kick = kick
+                                self.state.sweep_status = "done"
+                                self.state.sweep_active = False
+                                self.state.sweep_progress = 1.0
+                                self.state.sweep_level = 0
+                            sweep_active = sweep_running = False
+                    else:
+                        level = sweep_levels[sweep_idx]
+                        src = float(level)
+                        if sweep_phase == "ramp":            # wait for slew to reach the level
+                            if abs(applied - level) < 1.0:
+                                sweep_phase, sweep_t0 = "dwell", now
+                                sweep_sum, sweep_n = 0.0, 0
+                        elif sweep_phase == "dwell":
+                            elapsed = now - sweep_t0
+                            if elapsed >= 0.4 * sweep_dwell and amps is not None:
+                                sweep_sum += amps            # average over the settled tail
+                                sweep_n += 1
+                            if elapsed >= sweep_dwell:
+                                avg = (sweep_sum / sweep_n) if sweep_n else (amps if amps is not None else 0.0)
+                                sweep_results.append({"cmd": int(level), "amps": round(avg, 2)})
+                                sweep_idx += 1
+                                sweep_phase = "ramp"
+                        with self.state.lock:
+                            self.state.sweep_progress = sweep_idx / len(sweep_levels) if sweep_levels else 1.0
+                            self.state.sweep_level = int(level)
+                            self.state.sweep_status = ("running · %d/%d cmd %d · %s"
+                                                       % (sweep_idx + 1, len(sweep_levels), level, sweep_phase))
+                elif sweep_running:                          # externally aborted (on=0)
+                    sweep_running = False
+
+                if sweep_running:                            # sweep drives itself; no deadman gate
+                    momentary = False
                 if estop or tripped or not armed:
                     desired = 0.0
                 elif momentary and deadman:
@@ -585,6 +732,56 @@ class Handler(BaseHTTPRequestHandler):
             with st.lock:
                 st.config_queue.append({"flash": True})
             self._json({"ok": True})
+        elif u.path == "/api/sweep":
+            on = q.get("on", ["0"])[0] == "1"
+            with st.lock:
+                if on:
+                    st.sweep_step = int(clamp(self._num(q, "step", st.sweep_step), 1, 1000))
+                    st.sweep_dwell = clamp(self._num(q, "dwell", st.sweep_dwell), 0.2, 30)
+                    st.sweep_max = int(clamp(self._num(q, "max", st.sweep_max), 0, st.cap))
+                    d = q.get("dir", [st.sweep_dir])[0]
+                    st.sweep_dir = d if d in ("fwd", "rev", "both") else st.sweep_dir
+                    st.sweep_active = True
+                    st.sweep_status = "starting"
+                    st.sweep_results = []
+                    st.sweep_breakaway = st.sweep_kick = None
+                    st.sweep_progress = 0.0
+                else:
+                    st.sweep_active = False
+                    st.sweep_status = "aborted"
+            self._json({"ok": True})
+        elif u.path == "/api/preset_save":
+            name = q.get("name", [""])[0].strip()
+            safe = safe_preset_name(name)
+            with st.lock:
+                results = list(st.sweep_results)
+                obj = {"name": name, "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                       "params": {"step": st.sweep_step, "dwell": st.sweep_dwell,
+                                  "max": st.sweep_max, "dir": st.sweep_dir},
+                       "results": results, "breakaway": st.sweep_breakaway,
+                       "suggested_kick": st.sweep_kick}
+            if not safe or not results:
+                self._json({"ok": False, "err": "need a name and a completed sweep"})
+                return
+            PRESET_DIR.mkdir(exist_ok=True)
+            (PRESET_DIR / (safe + ".json")).write_text(json.dumps(obj, indent=2))
+            self._json({"ok": True, "name": safe})
+        elif u.path == "/api/preset_list":
+            self._json({"ok": True, "presets": preset_names()})
+        elif u.path == "/api/preset_load":
+            safe = safe_preset_name(q.get("name", [""])[0])
+            f = PRESET_DIR / (safe + ".json")
+            if not safe or not f.exists():
+                self._json({"ok": False, "err": "not found"})
+                return
+            try:
+                obj = json.loads(f.read_text())
+            except (OSError, ValueError):
+                self._json({"ok": False, "err": "bad preset file"})
+                return
+            with st.lock:
+                st.baseline = obj
+            self._json({"ok": True})
         else:
             self.send_response(404)
             self.end_headers()
@@ -610,6 +807,14 @@ def main():
 
     port = discover_port(args.port)
     state = State(clamp(args.cap, 0, MAX_CAP))
+    # Load the most-recent characterization preset for DISPLAY only (reference
+    # baseline in the UI). This never moves the motor and never starts a sweep.
+    mr = most_recent_preset()
+    if mr is not None:
+        try:
+            state.baseline = json.loads(mr.read_text())
+        except (OSError, ValueError):
+            pass
     worker = Worker(state, port)
     worker.start()
 
