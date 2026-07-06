@@ -1,0 +1,74 @@
+====================================================================
+  RA Roto Control — HDC2450 serial setup   [AUDIT]
+  controller : Roboteq HDC2450
+  profile    : AS-FOUND full config dump (READ-ONLY catalog)
+  port       : /dev/cu.usbmodemRTQ00101 @ 115200 8N1
+====================================================================
+  !  MOTOR POWER MUST BE OFF. This tool writes config, not motion,
+     but validate on the bench with the motor stage disconnected.
+====================================================================
+  Connected. Firmware ID: ?FID
+
+
+Current controller values (read-only):
+
+  CPRI 1         = 0
+  CPRI 2         = 1
+  CPRI 3         = 2
+  RWD            = 1000
+  ECHOF          = 0
+  PWMF           = 180
+  OVL            = 450
+  UVL            = 50
+  MXMD           = 0:0
+  BRUN           = 0
+  AMOD 1         = 0
+  AINA 1         = 16
+  AMIN 1         = 250
+  ACTR 1         = 2500
+  AMAX 1         = 4750
+  ADB 1          = 5
+  APOL 1         = 0
+  AMOD 2         = 0
+  AINA 2         = 48
+  AMIN 2         = 250
+  ACTR 2         = 2500
+  AMAX 2         = 4750
+  ADB 2          = 5
+  APOL 2         = 0
+  AMOD 3         = 0
+  AINA 3         = 33
+  AMIN 3         = 100
+  ACTR 3         = 1270
+  AMAX 3         = 2500
+  ADB 3          = 0
+  APOL 3         = 0
+  AMOD 4         = 1
+  AINA 4         = 33
+  AMIN 4         = 100
+  ACTR 4         = 1275
+  AMAX 4         = 2400
+  ADB 4          = 0
+  APOL 4         = 0
+  AMOD 5         = 0
+  AINA 5         = 0
+  AMOD 6         = 0
+  AINA 6         = 0
+  MMOD 1         = 0
+  MAC 1          = 500
+  MDEC 1         = 500
+  MXPF 1         = 100
+  MXPR 1         = 100
+  MXRPM 1        = 1000
+  ALIM 1         = 1000
+  ATGA 1         = 16
+  MMOD 2         = 0
+  MAC 2          = 20000
+  MDEC 2         = 20000
+  MXPF 2         = 50
+  MXPR 2         = 50
+  MXRPM 2        = 1000
+  ALIM 2         = 1000
+  ATGA 2         = 0
+
+Audit complete. No changes were made.

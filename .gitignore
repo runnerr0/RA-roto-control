@@ -16,6 +16,10 @@
 .DS_Store
 *.swp
 
+# Python (host tools)
+__pycache__/
+*.pyc
+
 # Secrets — never commit
 secrets.h
 wifi_credentials.h

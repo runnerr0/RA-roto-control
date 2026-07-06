@@ -1,0 +1,16 @@
+{
+  "controller": "Roboteq HDC2450",
+  "profile": "TIMING/PROTECTION read (read-only)",
+  "_about": "Read-only: amps-trigger + watchdog + ramp timing to complete the safety-timing picture. All values null (never writes).",
+  "items": [
+    { "key": "RWD",   "value": null, "note": "serial command-loss watchdog (ms)" },
+    { "key": "MAC",   "index": "1", "value": null, "note": "accel ramp" },
+    { "key": "MDEC",  "index": "1", "value": null, "note": "decel ramp" },
+    { "key": "ATRIG", "index": "1", "value": null, "note": "amps trigger threshold, M1" },
+    { "key": "ATGA",  "index": "1", "value": null, "note": "amps trigger action, M1" },
+    { "key": "ATGD",  "index": "1", "value": null, "note": "amps trigger delay (ms), M1" },
+    { "key": "ATRIG", "index": "2", "value": null, "note": "amps trigger threshold, M2" },
+    { "key": "ATGA",  "index": "2", "value": null, "note": "amps trigger action, M2" },
+    { "key": "ATGD",  "index": "2", "value": null, "note": "amps trigger delay (ms), M2" }
+  ]
+}

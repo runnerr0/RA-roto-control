@@ -1,0 +1,20 @@
+====================================================================
+  RA Roto Control — HDC2450 serial setup   [APPLY]
+  controller : Roboteq HDC2450
+  profile    : BENCH SAFETY — RAM-only guardrails for first serial spin
+  port       : /dev/cu.usbmodemRTQ00101 @ 115200 8N1
+====================================================================
+  !  MOTOR POWER MUST BE OFF. This tool writes config, not motion,
+     but validate on the bench with the motor stage disconnected.
+====================================================================
+  Connected. Firmware ID: ?FID
+
+
+  ALIM 1         1000         -> 50           OK set & verified
+  RWD            1000         -> 500          OK set & verified
+  AINA 3         33           -> 0            OK set & verified
+  AINA 4         33           -> 0            OK set & verified
+
+  Written to RAM and verified. Values are NOT yet persisted.
+  Power-cycle to confirm your fail-safe behavior, then re-run with
+  --apply --save to commit to flash.

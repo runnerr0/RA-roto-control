@@ -1,0 +1,77 @@
+{
+  "controller": "Roboteq HDC2450",
+  "profile": "AS-FOUND full config dump (READ-ONLY catalog)",
+  "_about": "Comprehensive read manifest for `roto_setup.py --audit`. Every value is null so this file can NEVER write anything even if misused with --apply (placeholder = skipped). Purpose: catalog the existing controller configuration before any change. Covers command priority, all 6 analog inputs, both motor channels, and protection globals. Digital/pulse/encoder IO omitted (this rig is analog-command, open-loop); add rows if needed.",
+  "_conventions": {
+    "index": "channel/input number as a string, or omitted for global params",
+    "value": "always null here — read-only catalog, no targets"
+  },
+  "items": [
+    { "key": "CPRI", "index": "1", "value": null, "note": "command priority slot 1" },
+    { "key": "CPRI", "index": "2", "value": null, "note": "command priority slot 2" },
+    { "key": "CPRI", "index": "3", "value": null, "note": "command priority slot 3" },
+
+    { "key": "RWD",   "value": null, "note": "serial command-loss watchdog timeout (ms; 0=off)" },
+    { "key": "ECHOF", "value": null, "note": "serial echo off flag" },
+    { "key": "PWMF",  "value": null, "note": "PWM frequency" },
+    { "key": "OVL",   "value": null, "note": "over-voltage limit (0.1V)" },
+    { "key": "UVL",   "value": null, "note": "under-voltage limit (0.1V)" },
+    { "key": "MXMD",  "value": null, "note": "mixing mode" },
+    { "key": "BRUN",  "value": null, "note": "auto-start MicroBasic script on boot" },
+
+    { "key": "AMOD", "index": "1", "value": null, "note": "ANA1 = pin 15 (Decode8 out 2)" },
+    { "key": "AINA", "index": "1", "value": null, "note": "ANA1 action bitmask" },
+    { "key": "AMIN", "index": "1", "value": null },
+    { "key": "ACTR", "index": "1", "value": null },
+    { "key": "AMAX", "index": "1", "value": null },
+    { "key": "ADB",  "index": "1", "value": null },
+    { "key": "APOL", "index": "1", "value": null },
+
+    { "key": "AMOD", "index": "2", "value": null, "note": "ANA2 = pin 16 (Decode8 out 3)" },
+    { "key": "AINA", "index": "2", "value": null },
+    { "key": "AMIN", "index": "2", "value": null },
+    { "key": "ACTR", "index": "2", "value": null },
+    { "key": "AMAX", "index": "2", "value": null },
+    { "key": "ADB",  "index": "2", "value": null },
+    { "key": "APOL", "index": "2", "value": null },
+
+    { "key": "AMOD", "index": "3", "value": null, "note": "ANA3 = pin 4 (Decode8 out 4) = Motor 1 cmd line (DEAD pin)" },
+    { "key": "AINA", "index": "3", "value": null },
+    { "key": "AMIN", "index": "3", "value": null },
+    { "key": "ACTR", "index": "3", "value": null },
+    { "key": "AMAX", "index": "3", "value": null },
+    { "key": "ADB",  "index": "3", "value": null },
+    { "key": "APOL", "index": "3", "value": null },
+
+    { "key": "AMOD", "index": "4", "value": null, "note": "ANA4 = pin 17 (Decode8 out 5) = WORKING input" },
+    { "key": "AINA", "index": "4", "value": null },
+    { "key": "AMIN", "index": "4", "value": null },
+    { "key": "ACTR", "index": "4", "value": null },
+    { "key": "AMAX", "index": "4", "value": null },
+    { "key": "ADB",  "index": "4", "value": null },
+    { "key": "APOL", "index": "4", "value": null },
+
+    { "key": "AMOD", "index": "5", "value": null, "note": "ANA5 = pin 21 (unwired)" },
+    { "key": "AINA", "index": "5", "value": null },
+    { "key": "AMOD", "index": "6", "value": null, "note": "ANA6 = pin 22 (unwired)" },
+    { "key": "AINA", "index": "6", "value": null },
+
+    { "key": "MMOD",  "index": "1", "value": null, "note": "Motor 1 mode (0=open loop)" },
+    { "key": "MAC",   "index": "1", "value": null },
+    { "key": "MDEC",  "index": "1", "value": null },
+    { "key": "MXPF",  "index": "1", "value": null, "note": "max power forward" },
+    { "key": "MXPR",  "index": "1", "value": null, "note": "max power reverse" },
+    { "key": "MXRPM", "index": "1", "value": null },
+    { "key": "ALIM",  "index": "1", "value": null, "note": "amps limit (0.1A)" },
+    { "key": "ATGA",  "index": "1", "value": null, "note": "amps trigger action" },
+
+    { "key": "MMOD",  "index": "2", "value": null, "note": "Motor 2 mode" },
+    { "key": "MAC",   "index": "2", "value": null },
+    { "key": "MDEC",  "index": "2", "value": null },
+    { "key": "MXPF",  "index": "2", "value": null },
+    { "key": "MXPR",  "index": "2", "value": null },
+    { "key": "MXRPM", "index": "2", "value": null },
+    { "key": "ALIM",  "index": "2", "value": null },
+    { "key": "ATGA",  "index": "2", "value": null }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "controller": "Roboteq HDC2450",
+  "profile": "BENCH SAFETY — RAM-only guardrails for first serial spin",
+  "_about": "Apply RAM-only (NO --save) before the first motor-in-the-loop test. Reversible by power-cycle. Caps current, tightens the command-loss watchdog, and makes SERIAL the sole command authority by removing the analog-command actions (kills the floating pin-4 hazard). Analog voltages still READ fine in ?AI/?PI diagnostics — AINA only controls whether an input ACTS as a command.",
+  "_warning": "MOTOR POWER OFF while applying and during the tool hand-off. Values land in RAM only.",
+  "items": [
+    { "key": "ALIM", "index": "1", "value": "50",
+      "note": "current limit Motor 1 = 5.0 A (0.1A units). May clamp up to 10 A (100) if the controller floors at 10 A — read-back will show. PSU current limit is the real 5 A backstop." },
+    { "key": "RWD", "value": "500",
+      "note": "serial command-loss watchdog = 500 ms. Tool streams !G at ~66-116 ms, so ample margin; motor self-stops 0.5 s after serial goes silent. Tighten to 300 later if desired." },
+    { "key": "AINA", "index": "3", "value": "0",
+      "note": "ANA3 = pin 4 (dead/floating) — remove its Motor-1 command action so a floating input can never drive the motor on serial fallback." },
+    { "key": "AINA", "index": "4", "value": "0",
+      "note": "ANA4 = pin 17 (working analog) — remove command action so ONLY serial !G commands Motor 1 during bench testing. Re-enable later to use the analog/DMX path." }
+  ]
+}

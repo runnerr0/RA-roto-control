@@ -42,6 +42,29 @@ pio run -e olimex_poe_iso            # build
 pio run -e olimex_poe_iso -t upload  # flash
 ```
 
+## Host tools (bench / bring-up)
+
+Python tools that talk to the HDC2450 directly over USB — no ESP32 required — for commissioning and
+bench control. Require `pyserial`.
+
+- **[`tools/roto-setup/`](tools/roto-setup/)** — config tool. Read (`--audit`) or write + verify
+  (`--apply`, RAM by default) controller configuration from JSON manifests. **Config-only: never issues a
+  motor command.** As-found config catalogs live under `captures/`.
+- **[`tools/roto-bench/`](tools/roto-bench/)** — a localhost web control console (`roto_bench.py` +
+  `ui.html`). Drives Motor 1 over serial with layered safety: arm gate, momentary/latched command, host
+  command cap + slew, browser deadman, E-STOP, and an **overcurrent/stall + temperature + I²t auto-trip**
+  — plus live telemetry, a strip chart, an alert log, and a **live RAM profile editor**.
+
+```bash
+pip install pyserial
+python3 tools/roto-setup/roto_setup.py --audit      # read controller config (safe)
+python3 tools/roto-bench/roto_bench.py              # web console at http://127.0.0.1:8791
+```
+
+> **Safety:** the bench console commands a real 2×150 A motor controller. Power the motor from a
+> current-limited supply, keep the controller's hardware E-stop reachable, and read
+> [`tools/roto-bench/`](tools/roto-bench/) before first use.
+
 ## Docs
 
 | Doc | Contents |
@@ -53,5 +76,7 @@ pio run -e olimex_poe_iso -t upload  # flash
 
 ## Status
 
-**Phase 0 — Planning + firmware scaffold.** Decisions locked, docs written, firmware compiles clean.
-Nothing has run on hardware yet. Next: serial bench bring-up (MAX3232 → `?FID` link check → live `!G`).
+**Phase 1 — Bench bring-up (in progress).** Serial link verified; Motor 1 runs over `!G` from the host
+control console with a 5 A current limit and layered auto-trip protection (overcurrent/stall,
+temperature, I²t). The legacy DMX→analog rig is reverse-engineered and documented in
+[`docs/LEGACY-WIRING.md`](docs/LEGACY-WIRING.md). Firmware compiles clean; ESP32 hardware bring-up next.
