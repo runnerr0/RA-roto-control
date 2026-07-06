@@ -155,6 +155,27 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=sub id=swbase style="margin-top:8px">Baseline: —</div>
 </div>
 
+<div class=card id=liftcard style="border-color:#8957e5"><b>⬆ Guided lift test <span class=q title="Holds a slow command and raises the current limit (ALIM) rung by rung until the loaded roto breaks free, then reports the current the load draws. RAISES ALIM and MOVES THE MOTOR; requires ARM. Auto-restores the safe limit on any abort / trip / over-temp.">?</span></b>
+ <div class=cap2 style="color:#d29922">⚠ Raises the controller current limit under load — be on the real supply, fuse &amp; wire for the current, E-STOP reachable.</div>
+ <div class=row style="margin-top:6px">
+  <span class=sub>ALIM start</span> <input id=lfstart class=num type=number min=1 step=0.5 value=5 title="Starting current limit (A).">
+  <span class=sub>· step</span> <input id=lfstep class=num type=number min=0.5 step=0.5 value=2.5 title="ALIM increment per rung (A).">
+  <span class=sub>· max</span> <input id=lfmax class=num type=number min=1 step=1 value=25 title="Ceiling — the test never exceeds this (A)."> <span class=sub>A</span>
+ </div>
+ <div class=row style="margin-top:6px">
+  <span class=sub>hold cmd</span> <input id=lfcmd class=num type=number min=-1000 max=1000 value=200 title="Slow command held during the test (also clamped to the speed cap).">
+  <span class=sub>· dwell</span> <input id=lfdwell class=num type=number min=0.5 step=0.5 value=3 title="Seconds per rung."> <span class=sub>s</span>
+  <span class=sub>· stop °C</span> <input id=lftemp class=num type=number min=0 step=1 value=65 title="Auto-stop temperature.">
+ </div>
+ <div class=row style="margin-top:10px">
+  <button id=lfrun class=zero title="Steps ALIM up under load. RAISES CURRENT LIMIT + MOVES MOTOR — ARM first, be on the real supply.">⬆ Run lift test</button>
+  <button id=lfstop class=clr>Abort</button>
+  <span class=sub id=lfstat>idle</span>
+ </div>
+ <div id=lfresult class=hint style="display:none"></div>
+ <table id=lftab></table>
+</div>
+
 <div class=card><div class="row spread"><b>Alerts</b><button id=aclear class=clr style="padding:6px 12px;font-size:13px">Clear log</button></div>
  <div id=aactive style="margin:8px 0"></div><div id=alog></div></div>
 
@@ -250,6 +271,11 @@ $('swsave').onclick=()=>{const n=$('swname').value;if(!n)return;api('/api/preset
 $('swload').onclick=()=>{const n=$('swpresets').value;if(!n)return;api('/api/preset_load?name='+encodeURIComponent(n))};
 function loadPresetList(){api('/api/preset_list').then(r=>{if(!r||!r.presets)return;const sel=$('swpresets'),cur=sel.value;
  sel.innerHTML=r.presets.map(p=>`<option value="${p}">${p}</option>`).join('');if(cur)sel.value=cur})}
+
+// ---- guided lift test (ALIM inputs are AMPS in the UI -> x10 to 0.1A units) ----
+$('lfrun').onclick=()=>{if(!S||!S.armed){flashBlk();return}
+ api('/api/lift?on=1&start='+($('lfstart').value*10)+'&step='+($('lfstep').value*10)+'&max='+($('lfmax').value*10)+'&cmd='+$('lfcmd').value+'&dwell='+$('lfdwell').value+'&temp='+$('lftemp').value)};
+$('lfstop').onclick=()=>api('/api/lift?on=0');
 
 // ---- profile editor ----
 function applyCfg(k,idx){const v=$('in_'+k).value;if(v==='')return;api('/api/config?key='+k+(idx?'&idx='+idx:'')+'&val='+v)}
@@ -358,6 +384,15 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  drawSweep(sr,(s.sweep_breakaway!=null)?s.sweep_breakaway:null);
  if(s.baseline){const b=s.baseline;$('swbase').innerHTML='Baseline: <b>'+D(b.name)+'</b> ('+D(b.timestamp,'')+') · breakaway '+D(b.breakaway)+' · kick '+D(b.suggested_kick)+' · '+((b.results&&b.results.length)||0)+' pts';}
  else $('swbase').textContent='Baseline: —';
+ // guided lift test
+ $('lfstat').textContent=D(s.lift_status,'idle');
+ $('lfstat').style.color=s.lift_active?'#d29922':(s.lift_lifted?'#3fb950':'#8b949e');
+ $('lfrun').disabled=!!s.lift_active;
+ const lr=s.lift_results||[];
+ $('lftab').innerHTML=lr.length?('<tr><th>ALIM A</th><th>amps</th><th>°C</th><th>lifted?</th></tr>'+lr.map(r=>`<tr><td>${r.alim}</td><td>${r.amps}</td><td>${D(r.temp)}</td><td>${r.lifted?'<b style="color:#3fb950">YES</b>':'no'}</td></tr>`).join('')):'';
+ if(s.lift_lifted&&s.lift_peak_amps!=null){$('lfresult').style.display='block';
+  $('lfresult').innerHTML='✅ Lifted — load draws <b>'+s.lift_peak_amps+' A</b>. Suggest ALIM ≈ <b>'+(s.lift_peak_amps*1.3).toFixed(1)+' A</b> (peak ×1.3). Set it in the profile editor, then Save to flash.';}
+ else $('lfresult').style.display='none';
  // profile
  if(!profBuilt&&s.profile&&Object.keys(s.profile).length)buildProf(s.profile);
  if(profBuilt)PROF.forEach(r=>{const c=$('cur_'+r[0]);if(c)c.textContent=(s.profile&&s.profile[r[0]]!=null)?s.profile[r[0]]:'—'});

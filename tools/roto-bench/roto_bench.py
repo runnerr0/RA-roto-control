@@ -128,6 +128,19 @@ class State:
         self.sweep_breakaway = None      # est. breakaway command
         self.sweep_kick = None           # suggested CREEP kick (magnitude)
         self.baseline = None             # most-recent/loaded preset (display only)
+        # --- guided LIFT TEST (steps ALIM up under a held command) ------- #
+        self.lift_active = False
+        self.lift_status = "idle"
+        self.lift_alim_start = 50        # 5.0 A (0.1A units)
+        self.lift_alim_step = 25         # +2.5 A per rung
+        self.lift_alim_max = 250         # 25.0 A safety ceiling
+        self.lift_dwell = 3.0            # seconds per rung
+        self.lift_cmd = 200              # slow command held during the test
+        self.lift_temp_limit = 65.0      # auto-stop temperature (degC)
+        self.lift_results = []           # [{alim, amps, temp, lifted}]
+        self.lift_alim_cur = 0           # ALIM (A) currently under test
+        self.lift_peak_amps = None       # detected load current once it lifts
+        self.lift_lifted = False         # did it break free within the ceiling
 
     def snapshot(self):
         with self.lock:
@@ -153,6 +166,12 @@ class State:
                 "sweep_results": list(self.sweep_results),
                 "sweep_breakaway": self.sweep_breakaway, "sweep_kick": self.sweep_kick,
                 "baseline": dict(self.baseline) if self.baseline else None,
+                "lift_active": self.lift_active, "lift_status": self.lift_status,
+                "lift_alim_start": self.lift_alim_start, "lift_alim_step": self.lift_alim_step,
+                "lift_alim_max": self.lift_alim_max, "lift_dwell": self.lift_dwell,
+                "lift_cmd": self.lift_cmd, "lift_temp_limit": self.lift_temp_limit,
+                "lift_results": list(self.lift_results), "lift_alim_cur": self.lift_alim_cur,
+                "lift_peak_amps": self.lift_peak_amps, "lift_lifted": self.lift_lifted,
             }
 
 
@@ -350,6 +369,14 @@ class Worker(threading.Thread):
         sweep_n = 0
         sweep_t0 = 0.0
         sweep_results = []
+        # guided lift-test locals (persist across ticks)
+        lift_running = False
+        lift_alim = 0
+        lift_phase = "set"
+        lift_t0 = 0.0
+        lift_sum = 0.0
+        lift_n = 0
+        lift_results = []
         while not self._halt.is_set():
             try:
                 if self._ser is None:
@@ -373,10 +400,15 @@ class Worker(threading.Thread):
                     sweep_active = self.state.sweep_active
                     sweep_step, sweep_dwell = self.state.sweep_step, self.state.sweep_dwell
                     sweep_max, sweep_dir = self.state.sweep_max, self.state.sweep_dir
+                    lift_active = self.state.lift_active
+                    lift_alim_start, lift_alim_step = self.state.lift_alim_start, self.state.lift_alim_step
+                    lift_alim_max, lift_dwell = self.state.lift_alim_max, self.state.lift_dwell
+                    lift_cmd, lift_temp_limit = self.state.lift_cmd, self.state.lift_temp_limit
                 momentary = (run_mode == "jog")           # hold-to-run
                 # CREEP: slow loaded creep looks like a stall, so suppress the current-stall
-                # trip (like HOLD) and rely on temperature + I2t.
-                intent = "hold" if run_mode in ("hold", "creep") else "run"
+                # trip (like HOLD) and rely on temperature + I2t. The lift test does the
+                # same on purpose — it sits AT the limit while stalled until it breaks free.
+                intent = "hold" if (run_mode in ("hold", "creep") or lift_active) else "run"
 
                 # --- fast amps + trip evaluation --------------------------- #
                 amps, amps_raw = self._sample_amps()
@@ -482,7 +514,77 @@ class Worker(threading.Thread):
                 elif sweep_running:                          # externally aborted (on=0)
                     sweep_running = False
 
-                if sweep_running:                            # sweep drives itself; no deadman gate
+                # --- guided LIFT TEST state machine ------------------------ #
+                # Holds a slow command and steps ALIM up rung by rung. Detects
+                # "lifted" when measured amps fall below the limit (no longer
+                # current-clamped = the motor broke free and is turning). Aborts
+                # on disarm/estop/trip and RESTORES the safe start limit.
+                lift_end = None
+                if lift_active and (not armed or estop or tripped):
+                    lift_end = ("aborted (disarm/estop/trip)", False, None)
+                elif lift_running and not lift_active:        # external abort (on=0)
+                    lift_end = ("aborted", False, None)
+                elif lift_active:
+                    if not lift_running:
+                        lift_alim, lift_phase, lift_results = lift_alim_start, "set", []
+                        lift_running = True
+                        with self.state.lock:
+                            self.state.logging = True
+                    src = clamp(float(lift_cmd), -cap, cap)   # hold the slow lift command
+                    if lift_phase == "set":
+                        self._write_config("ALIM", "1", str(int(lift_alim)))
+                        lift_phase, lift_t0, lift_sum, lift_n = "settle", now, 0.0, 0
+                        with self.state.lock:
+                            self.state.expected["ALIM 1"] = str(int(lift_alim))   # keep drift monitor in step
+                            self.state.mon["ALIM 1"] = str(int(lift_alim))
+                            self.state.lift_alim_cur = round(lift_alim / 10.0, 1)
+                            self.state.lift_status = "testing ALIM %.1f A" % (lift_alim / 10.0)
+                    elif lift_phase == "settle":
+                        if (now - lift_t0) >= 0.4 * lift_dwell:
+                            lift_phase, lift_t0, lift_sum, lift_n = "dwell", now, 0.0, 0
+                    elif lift_phase == "dwell":
+                        if amps is not None:
+                            lift_sum += amps
+                            lift_n += 1
+                        if (now - lift_t0) >= 0.6 * lift_dwell:
+                            avg = (lift_sum / lift_n) if lift_n else (amps if amps is not None else 0.0)
+                            tmax = max(temps) if temps else None
+                            alim_a = lift_alim / 10.0
+                            lifted = avg < 0.85 * alim_a       # amps below limit -> it's turning
+                            lift_results.append({"alim": round(alim_a, 1), "amps": round(avg, 2),
+                                                 "temp": tmax, "lifted": lifted})
+                            with self.state.lock:
+                                self.state.lift_results = list(lift_results)
+                            if lifted:
+                                lift_end = ("LIFTED at %.1f A — load draws %.1f A" % (alim_a, avg), True, avg)
+                            elif tmax is not None and tmax >= lift_temp_limit:
+                                lift_end = ("stopped: %d C >= %.0f C limit" % (tmax, lift_temp_limit), False, None)
+                            elif lift_alim + lift_alim_step > lift_alim_max:
+                                lift_end = ("ceiling %.1f A reached, did not lift" % (lift_alim_max / 10.0), False, None)
+                            else:
+                                lift_alim += lift_alim_step
+                                lift_phase = "set"
+                if lift_end is not None:
+                    status, keep_alim, peak = lift_end
+                    if not keep_alim:                          # restore the safe start limit
+                        try:
+                            self._write_config("ALIM", "1", str(int(lift_alim_start)))
+                        except Exception:
+                            pass
+                        with self.state.lock:
+                            self.state.expected["ALIM 1"] = str(int(lift_alim_start))
+                            self.state.mon["ALIM 1"] = str(int(lift_alim_start))
+                    with self.state.lock:
+                        self.state.lift_active = False
+                        self.state.lift_status = status
+                        self.state.lift_lifted = peak is not None
+                        if peak is not None:
+                            self.state.lift_peak_amps = round(peak, 2)
+                        self.state.target = 0.0
+                    lift_active = lift_running = False
+                    src = 0.0
+
+                if sweep_running or lift_running:            # routine drives itself; no deadman gate
                     momentary = False
                 if estop or tripped or not armed:
                     desired = 0.0
@@ -741,6 +843,7 @@ class Handler(BaseHTTPRequestHandler):
                     st.sweep_max = int(clamp(self._num(q, "max", st.sweep_max), 0, st.cap))
                     d = q.get("dir", [st.sweep_dir])[0]
                     st.sweep_dir = d if d in ("fwd", "rev", "both") else st.sweep_dir
+                    st.lift_active = False               # mutually exclusive with lift test
                     st.sweep_active = True
                     st.sweep_status = "starting"
                     st.sweep_results = []
@@ -749,6 +852,26 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     st.sweep_active = False
                     st.sweep_status = "aborted"
+            self._json({"ok": True})
+        elif u.path == "/api/lift":
+            on = q.get("on", ["0"])[0] == "1"
+            with st.lock:
+                if on:
+                    st.lift_alim_start = int(clamp(self._num(q, "start", st.lift_alim_start), 10, 600))
+                    st.lift_alim_step = int(clamp(self._num(q, "step", st.lift_alim_step), 5, 200))
+                    st.lift_alim_max = int(clamp(self._num(q, "max", st.lift_alim_max), st.lift_alim_start, 600))
+                    st.lift_dwell = clamp(self._num(q, "dwell", st.lift_dwell), 0.5, 15)
+                    st.lift_cmd = int(clamp(self._num(q, "cmd", st.lift_cmd), -1000, 1000))
+                    st.lift_temp_limit = clamp(self._num(q, "temp", st.lift_temp_limit), 0, 120)
+                    st.sweep_active = False              # mutually exclusive with sweep
+                    st.lift_active = True
+                    st.lift_status = "starting"
+                    st.lift_results = []
+                    st.lift_peak_amps = None
+                    st.lift_lifted = False
+                else:
+                    st.lift_active = False
+                    st.lift_status = "aborted"
             self._json({"ok": True})
         elif u.path == "/api/preset_save":
             name = q.get("name", [""])[0].strip()
