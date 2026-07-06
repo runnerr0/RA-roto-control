@@ -118,7 +118,8 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  </div>
 </div>
 
-<div class=card><b>Alerts</b><div id=aactive style="margin-bottom:8px"></div><div id=alog></div></div>
+<div class=card><div class="row spread"><b>Alerts</b><button id=aclear class=clr style="padding:6px 12px;font-size:13px">Clear log</button></div>
+ <div id=aactive style="margin:8px 0"></div><div id=alog></div></div>
 
 <div class=card><b>Controller health</b><table id=tele></table></div>
 
@@ -196,6 +197,7 @@ $('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('thea
 $('rtrip').onclick=()=>api('/api/resettrip');
 $('flash').onclick=()=>api('/api/config_flash');
 $('reapply').onclick=()=>api('/api/reapply');
+$('aclear').onclick=()=>{$('alog').innerHTML=''};
 
 // ---- profile editor ----
 function applyCfg(k,idx){const v=$('in_'+k).value;if(v==='')return;api('/api/config?key='+k+(idx?'&idx='+idx:'')+'&val='+v)}
