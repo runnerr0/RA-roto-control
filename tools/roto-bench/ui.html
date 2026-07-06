@@ -1,22 +1,23 @@
 <!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
-<title>RA Roto — Bench Console</title><style>
-body{font:15px/1.4 system-ui,sans-serif;margin:0;background:#0d1117;color:#c9d1d9}
-.wrap{max-width:720px;margin:0 auto;padding:18px}
+<title>RA Roto — Control Console</title><style>
+body{font:15px/1.45 system-ui,sans-serif;margin:0;background:#0d1117;color:#c9d1d9}
+.wrap{max-width:760px;margin:0 auto;padding:18px}
 h1{font-size:18px;margin:0 0 2px}.sub{color:#8b949e;font-size:12px;margin:0}
 .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px;margin:14px 0}
 .card>b{display:block;margin-bottom:8px}
-.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.spread{justify-content:space-between}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.spread{justify-content:space-between}
 button{font:600 15px system-ui;border:0;border-radius:8px;padding:12px 16px;cursor:pointer;color:#fff}
 .arm{background:#238636}.arm.off{background:#30363d}
 .estop{background:#da3633;flex:1;font-size:20px;padding:18px}
 .zero{background:#1f6feb}.clr{background:#30363d}
-.tog{background:#30363d;padding:8px 14px;border-radius:20px}.tog.on{background:#8957e5}
-input[type=range]{width:100%;height:38px}
+.modebtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;flex:1;min-width:70px;padding:12px 6px;font-size:14px}
+.modebtn.on{background:#8957e5;border-color:#8957e5;color:#fff}
+input[type=range]{width:100%;height:38px}input[type=range]:disabled{opacity:.35}
 .num,.cap{width:80px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:8px}
 .val{font:700 42px ui-monospace,monospace;text-align:center;margin:4px 0}
-.mode{font-size:12px;color:#8b949e;text-align:center;margin-bottom:8px}
+.desc{font-size:12px;color:#8b949e;text-align:center;margin:2px 0 8px}
+.hint{background:#0d2440;border:1px solid #1f6feb44;color:#79c0ff;border-radius:8px;padding:8px 12px;font-size:13px;margin-top:8px}
 table{width:100%;border-collapse:collapse;font:13px ui-monospace,monospace}
 td{padding:5px 4px;border-bottom:1px solid #21262d}#tele td:last-child{text-align:right}
 th{text-align:left;color:#8b949e;font-size:12px;font-weight:600;padding:5px 4px;border-bottom:1px solid #30363d}
@@ -28,77 +29,89 @@ th{text-align:left;color:#8b949e;font-size:12px;font-weight:600;padding:5px 4px;
 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .stat{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:10px}
 .stat .k{font-size:11px;color:#8b949e}.stat .v{font:700 20px ui-monospace,monospace;margin-top:2px}
-canvas{width:100%;height:160px;display:block;background:#0d1117;border:1px solid #21262d;border-radius:8px}
-.leg{font-size:11px;color:#8b949e;margin-top:6px}.leg b{color:#58a6ff}.leg i{color:#d29922;font-style:normal}
-#alog{max-height:140px;overflow:auto;font:12px ui-monospace,monospace}
+canvas{width:100%;height:130px;display:block;background:#0d1117;border:1px solid #21262d;border-radius:8px}
+.cap2{font-size:11px;color:#8b949e;margin:4px 0 10px}.cap2 b{color:#58a6ff}.cap2 i{color:#3fb950;font-style:normal}.cap2 u{color:#d29922;text-decoration:none}
+#alog{max-height:130px;overflow:auto;font:12px ui-monospace,monospace}
 #alog div{padding:3px 0;border-bottom:1px solid #21262d}
 .sev-crit{color:#f85149}.sev-warn{color:#d29922}.sev-info{color:#8b949e}
-.active{margin-bottom:8px}.chip{display:inline-block;margin:2px;padding:3px 9px;border-radius:6px;font-size:12px;font-weight:600}
+.chip{display:inline-block;margin:2px;padding:3px 9px;border-radius:6px;font-size:12px;font-weight:600}
 .chip.crit{background:#3d1a1a;color:#f85149}.chip.warn{background:#3d331a;color:#d29922}.none{color:#3fb950;font-size:13px}
+details{background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:10px 14px}
+summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color:#c9d1d9}
+.q{color:#8b949e;cursor:help}
 </style></head><body><div class=wrap>
-<h1>RA Roto — Bench Console</h1>
-<p class=sub>Host-side HDC2450 Motor 1 control over USB serial · momentary or latched.</p>
+<h1>RA Roto — Control Console</h1>
+<p class=sub>HDC2450 Motor 1 · pick a run mode, ARM, then drive. Hover the <span class=q>?</span> marks for help.</p>
 
 <div class=card>
- <div class="row spread">
-  <span>Status: <span id=st class="pill warn">…</span></span>
-  <span><span id=mtog class=tog>MOMENTARY</span> <span id=itog class=tog>RUN</span></span>
-  <span>Cap ±<input id=cap class=cap type=number min=0 max=1000 value=150></span>
+ <div class="row spread"><span>Status: <span id=st class="pill warn">…</span></span>
+  <span>Speed cap ±<input id=cap class=cap type=number min=0 max=1000 value=150 title="Ceiling on command magnitude (0-1000). Limits top speed regardless of mode."></span></div>
+
+ <div class=row style="margin-top:10px">
+  <button class=modebtn id=m_jog>JOG</button>
+  <button class=modebtn id=m_cruise>CRUISE</button>
+  <button class=modebtn id=m_drift>DRIFT</button>
+  <button class=modebtn id=m_hold>HOLD</button>
  </div>
+ <div class=desc id=modedesc></div>
+
  <div class=val id=cmd>0</div>
- <div class=mode id=modehint>hold slider to run · releases to 0</div>
  <input id=sl type=range min=-1000 max=1000 value=0 step=1>
- <div class="row" style="margin-top:10px">
-  <span>Set <input id=num class=num type=number min=-1000 max=1000 value=0 step=10></span>
+ <div class=row style="margin-top:10px">
+  <span>Set <input id=num class=num type=number min=-1000 max=1000 value=0 step=10 title="Type a target and Apply (CRUISE/HOLD)."></span>
   <button id=set class=zero>Apply</button>
-  <button id=arm class="arm off">DISARMED</button>
-  <button id=zero class=clr>Zero</button>
+  <button id=arm class="arm off" title="Enable motion. Nothing moves until ARMED.">DISARMED</button>
+  <button id=zero class=clr title="Command 0 without disarming.">Zero</button>
   <button id=clr class=clr>Clear E-Stop</button>
  </div>
+
+ <div class=row id=oscbox style="margin-top:10px;display:none">
+  <span class=sub>Drift:</span> amplitude <input id=oamp class=num type=number min=0 max=1000 value=150 title="Peak command of the sweep.">
+  · period <input id=operiod class=num type=number min=1 step=1 value=20 title="Seconds per full back-and-forth cycle."> s
+  <button id=oset class=clr>Apply</button>
+ </div>
+
  <div class="row" style="margin-top:10px">
-  <span class=sub>Stall trip:</span>
+  <span class=sub>Stall trip: <span class=q title="RUN modes only. If current holds near the limit this long, it's a jam -> stop.">?</span></span>
   <input id=tamps class=num type=number min=0.1 step=0.1 value=4.5> A for
-  <input id=tms class=num type=number min=50 step=50 value=800> ms
-  <button id=tset class=clr>Apply</button>
+  <input id=tms class=num type=number min=50 step=50 value=800> ms <button id=tset class=clr>Apply</button>
  </div>
  <div class="row" style="margin-top:10px">
-  <span class=sub>Protect:</span>
-  temp <input id=ttemp class=num type=number min=0 step=1 value=70> °C ·
-  I²t <input id=theat class=num type=number min=0 step=50 value=600> A²s
-  <button id=pset class=clr>Apply</button>
+  <span class=sub>Protect: <span class=q title="Always on, incl. HOLD. Temp is the real damage signal; I2t catches sustained heavy current.">?</span></span>
+  temp <input id=ttemp class=num type=number min=0 step=1 value=70> °C · I²t <input id=theat class=num type=number min=0 step=50 value=600> A²s <button id=pset class=clr>Apply</button>
  </div>
  <div class=row style="margin-top:10px"><button class=estop id=es>■ E-STOP</button></div>
+ <div class=hint id=hint>—</div>
 </div>
 
 <div class=card id=tripcard style="display:none;border-color:#da3633">
- <b style="color:#f85149">⚠ OVERCURRENT / STALL TRIP — motor stopped &amp; disarmed</b>
+ <b style="color:#f85149">⚠ TRIP — motor stopped &amp; disarmed</b>
  <div id=tripreason class=sub></div>
  <div class=row style="margin-top:10px"><button class=zero id=rtrip>RESET TRIP</button></div>
 </div>
 
-<div class=card><b>Motor amps over time</b>
- <canvas id=chart width=1200 height=320></canvas>
- <div class=leg><b>■ amps</b> &nbsp; <i>■ applied cmd</i> &nbsp; · &nbsp; red dashed = current limit</div>
+<div class=card><b>Motion &amp; load <span class=q title="Open-loop: commanded motion is the speed proxy; current is the load/effort.">?</span></b>
+ <canvas id=cmot></canvas>
+ <div class=cap2>Commanded motion — <i>+ forward</i> / <u>− reverse</u>, center = stop. This is what you're telling the motor to do.</div>
+ <canvas id=cload></canvas>
+ <div class=cap2><b>Motor current</b> (effort/load) · red dashed = current limit. Rising current at steady command = increasing load.</div>
 </div>
 
-<div class=card><b>Heuristics</b>
+<div class=card><b>Live numbers</b>
  <div class=grid>
-  <div class=stat><div class=k>Power</div><div class=v id=h_pw>—</div></div>
-  <div class=stat><div class=k>Peak amps</div><div class=v id=h_pk>—</div></div>
+  <div class=stat title="Motor amps x battery volts."><div class=k>Power</div><div class=v id=h_pw>—</div></div>
+  <div class=stat title="Highest current seen this session."><div class=k>Peak amps</div><div class=v id=h_pk>—</div></div>
   <div class=stat><div class=k>Avg amps</div><div class=v id=h_av>—</div></div>
-  <div class=stat><div class=k>Applied</div><div class=v id=h_ap>—</div></div>
+  <div class=stat title="Command as % of full scale."><div class=k>Applied</div><div class=v id=h_ap>—</div></div>
   <div class=stat><div class=k>Battery</div><div class=v id=h_bv>—</div></div>
-  <div class=stat><div class=k>Sag</div><div class=v id=h_sg>—</div></div>
+  <div class=stat title="Voltage drop from the highest seen = system load/strain."><div class=k>Sag</div><div class=v id=h_sg>—</div></div>
   <div class=stat><div class=k>Max temp</div><div class=v id=h_tp>—</div></div>
   <div class=stat><div class=k>Run time</div><div class=v id=h_rt>—</div></div>
-  <div class=stat><div class=k>I²t heat</div><div class=v id=h_ht>—</div></div>
+  <div class=stat title="Thermal budget used. 100% trips."><div class=k>I²t heat</div><div class=v id=h_ht>—</div></div>
  </div>
 </div>
 
-<div class=card><b>Alerts</b>
- <div class=active id=aactive></div>
- <div id=alog></div>
-</div>
+<div class=card><b>Alerts</b><div id=aactive style="margin-bottom:8px"></div><div id=alog></div></div>
 
 <div class=card><b>Profile editor</b> <span class=sub>writes controller RAM · verified read-back</span>
  <table id=prof></table>
@@ -108,139 +121,151 @@ canvas{width:100%;height:160px;display:block;background:#0d1117;border:1px solid
 
 <div class=card><b>Controller health</b><table id=tele></table></div>
 <div class=card><b>Input diagnostics</b> <span class=sub>same DB25 pin reads analog OR pulse per config</span><table id=diag class=diag></table></div>
+
+<details><summary>Operator guide</summary>
+ <p><b>Start:</b> pick a mode → press <b>ARM</b> → drive. <b>Stop:</b> release the slider (JOG), press <b>Zero</b>, or <b>E-STOP</b>.</p>
+ <ul>
+  <li><b>JOG</b> — hold the slider to run, release = stop. For setup and positioning.</li>
+  <li><b>CRUISE</b> — set a speed; it holds. Stall-protected. For steady running.</li>
+  <li><b>DRIFT</b> — auto slow sweep back and forth (amplitude + period). Ambient motion.</li>
+  <li><b>HOLD</b> — maintain position under load. Stall-trip off; temperature/I²t still protect.</li>
+ </ul>
+ <p><b>If it TRIPS:</b> clear the jam/cause → <b>RESET TRIP</b> → <b>ARM</b> again. A trip means the motor stopped itself to avoid damage.</p>
+ <p><b>Reading it:</b> top graph = what you commanded (motion); bottom = current drawn (load). Current climbing while command is steady means the load is increasing — watch it near the red limit line.</p>
+</details>
 </div><script>
 const $=id=>document.getElementById(id);
 const SRC=[['1','pin15 · Dec2'],['2','pin16 · Dec3'],['3','pin4 · Dec4'],['4','pin17 · Dec5'],['5','pin21'],['6','pin22']];
-let intent='run', profBuilt=false;
 const PROF=[['ALIM','1','current limit 0.1A'],['MXPF','1','max power fwd %'],['MXPR','1','max power rev %'],['RWD','','watchdog ms'],['ATRIG','1','amps trigger 0.1A'],['ATGA','1','trigger action aa+16'],['ATGD','1','trigger delay ms']];
-function paintIntent(){$('itog').textContent=intent.toUpperCase();$('itog').className='tog'+(intent==='hold'?' on':'')}
-function applyCfg(k,idx){const v=$('in_'+k).value;if(v==='')return;api('/api/config?key='+k+(idx?'&idx='+idx:'')+'&val='+v)}
-function buildProf(p){$('prof').innerHTML='<tr><th>Param</th><th>Current</th><th>New</th><th></th></tr>'+PROF.map(r=>{const k=r[0];return `<tr><td title="${r[2]}">${k}${r[1]?' '+r[1]:''}</td><td class=cur id=cur_${k}>${p[k]??'—'}</td><td><input class=num id=in_${k} placeholder="${p[k]??''}"></td><td><button class=clr onclick="applyCfg('${k}','${r[1]}')">Apply</button></td></tr>`}).join('');profBuilt=true}
-function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();o.frequency.value=880;g.gain.value=.2;o.connect(g);g.connect(a.destination);o.start();setTimeout(()=>{o.stop();a.close()},200)}catch(e){}}
-const HIST=[]; const MAXH=400;         // ~60s at 150ms
-let armed=false, latched=false, ampLimit=5, peak=0, runStart=0, nomV=0;
+const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioning.',
+ cruise:'Set a speed; it holds. Stall-protected. Steady running.',
+ drift:'Auto slow sweep back and forth. Set amplitude & period. Ambient motion.',
+ hold:'Maintain position under load. Stall-trip OFF; temperature/I²t protect.'};
+const HIST=[],MAXH=400;
+let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={};
 const TH={hot:60,critHot:80,ampWarn:0.8,vLow:18,vHigh:52};
-let active={}, prevActive={};
 function api(p){return fetch(p).then(r=>r.json()).catch(()=>null)}
 
-// --- command inputs ---
-$('sl').addEventListener('input',e=>{setCmd(+e.target.value)});
-function release(){ if(!latched){ $('sl').value=0; setCmd(0);} }
+// ---- mode ----
+function setMode(m){rmode=m;api('/api/runmode?m='+m);paintMode()}
+function paintMode(){
+ ['jog','cruise','drift','hold'].forEach(m=>$('m_'+m).className='modebtn'+(m===rmode?' on':''));
+ $('modedesc').textContent=MODES[rmode];
+ $('oscbox').style.display=(rmode==='drift')?'flex':'none';
+ $('sl').disabled=(rmode==='drift');
+}
+['jog','cruise','drift','hold'].forEach(m=>$('m_'+m).onclick=()=>setMode(m));
+
+// ---- command ----
+$('sl').addEventListener('input',e=>setCmd(+e.target.value));
+function release(){if(rmode==='jog'){$('sl').value=0;setCmd(0)}}
 $('sl').addEventListener('mouseup',release);$('sl').addEventListener('touchend',release);$('sl').addEventListener('mouseleave',release);
-$('set').onclick=()=>{const v=+$('num').value; $('sl').value=v; setCmd(v)};
-function setCmd(v){$('cmd').textContent=v; api('/api/set?g='+v)}
-$('arm').onclick=()=>{armed=!armed; api('/api/arm?on='+(armed?1:0))};
+function setCmd(v){$('cmd').textContent=v;api('/api/set?g='+v)}
+$('set').onclick=()=>{const v=+$('num').value;$('sl').value=v;setCmd(v)};
+$('arm').onclick=()=>api('/api/arm?on='+($('arm').classList.contains('off')?1:0));
 $('zero').onclick=()=>{$('sl').value=0;$('num').value=0;setCmd(0)};
 $('es').onclick=()=>{$('sl').value=0;setCmd(0);api('/api/estop')};
 $('clr').onclick=()=>api('/api/clear');
 $('cap').onchange=e=>api('/api/cap?v='+e.target.value);
+$('oset').onclick=()=>api('/api/osc?amp='+$('oamp').value+'&period='+$('operiod').value);
 $('tset').onclick=()=>api('/api/trip?amps='+$('tamps').value+'&ms='+$('tms').value);
 $('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('theat').value);
 $('rtrip').onclick=()=>api('/api/resettrip');
-$('itog').onclick=()=>{intent=(intent==='run')?'hold':'run';api('/api/intent?i='+intent);paintIntent()};
 $('flash').onclick=()=>api('/api/config_flash');
-paintIntent();
-$('mtog').onclick=()=>{latched=!latched; api('/api/mode?m='+(latched?'latched':'momentary')); paintMode()};
-function paintMode(){
- $('mtog').textContent=latched?'LATCHED':'MOMENTARY'; $('mtog').className='tog'+(latched?' on':'');
- $('modehint').textContent=latched?'set a speed — it HOLDS until you change it (unattended-safe via watchdog + E-STOP)':'hold slider to run · releases to 0';
-}
-paintMode();
 
-// --- chart ---
-function draw(){
- const c=$('chart'),x=c.getContext('2d'),W=c.width,H=c.height;
- x.clearRect(0,0,W,H);
- const top=Math.max(ampLimit*1.25, peak*1.1, 1);
- // limit line
- const ly=H-(ampLimit/top)*H;
+// ---- profile editor ----
+function applyCfg(k,idx){const v=$('in_'+k).value;if(v==='')return;api('/api/config?key='+k+(idx?'&idx='+idx:'')+'&val='+v)}
+function buildProf(p){$('prof').innerHTML='<tr><th>Param</th><th>Current</th><th>New</th><th></th></tr>'+PROF.map(r=>{const k=r[0];return `<tr><td title="${r[2]}">${k}${r[1]?' '+r[1]:''}</td><td class=cur id=cur_${k}>${p[k]??'—'}</td><td><input class=num id=in_${k} placeholder="${p[k]??''}"></td><td><button class=clr onclick="applyCfg('${k}','${r[1]}')">Apply</button></td></tr>`}).join('');profBuilt=true}
+function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();o.frequency.value=880;g.gain.value=.2;o.connect(g);g.connect(a.destination);o.start();setTimeout(()=>{o.stop();a.close()},200)}catch(e){}}
+
+// ---- charts ----
+function drawLoad(){const c=$('cload'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height;x.clearRect(0,0,W,H);
+ const top=Math.max(ampLimit*1.25,peak*1.1,1),ly=H-(ampLimit/top)*H;
  x.strokeStyle='#da3633';x.setLineDash([6,5]);x.beginPath();x.moveTo(0,ly);x.lineTo(W,ly);x.stroke();x.setLineDash([]);
- x.fillStyle='#da3633';x.font='16px monospace';x.fillText(ampLimit.toFixed(1)+' A limit',8,ly-6);
- if(HIST.length<2)return;
- const dx=W/(MAXH-1);
- // applied cmd (faint, scaled to +-1000 -> mid line)
- x.strokeStyle='#d29922';x.globalAlpha=.5;x.beginPath();
- HIST.forEach((p,i)=>{const y=H/2-(p.ap/1000)*(H/2);i?x.lineTo(i*dx,y):x.moveTo(i*dx,y)});x.stroke();x.globalAlpha=1;
- // amps
+ x.fillStyle='#da3633';x.font='11px monospace';x.fillText(ampLimit.toFixed(1)+' A',6,ly-4);
+ if(HIST.length<2)return;const dx=W/(MAXH-1);
  x.strokeStyle='#58a6ff';x.lineWidth=2;x.beginPath();
- HIST.forEach((p,i)=>{const y=H-(Math.max(p.a,0)/top)*H;i?x.lineTo(i*dx,y):x.moveTo(i*dx,y)});x.stroke();x.lineWidth=1;
-}
+ HIST.forEach((p,i)=>{const y=H-(Math.max(p.a,0)/top)*H;i?x.lineTo(i*dx,y):x.moveTo(i*dx,y)});x.stroke();x.lineWidth=1}
+function drawMotion(){const c=$('cmot'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height;x.clearRect(0,0,W,H);
+ x.strokeStyle='#30363d';x.beginPath();x.moveTo(0,H/2);x.lineTo(W,H/2);x.stroke();
+ x.fillStyle='#8b949e';x.font='11px monospace';x.fillText('stop',6,H/2-4);
+ if(HIST.length<2)return;const dx=W/(MAXH-1);
+ x.strokeStyle='#3fb950';x.lineWidth=2;x.beginPath();
+ HIST.forEach((p,i)=>{const y=H/2-(p.ap/1000)*(H/2);i?x.lineTo(i*dx,y):x.moveTo(i*dx,y)});x.stroke();x.lineWidth=1}
 
-// --- alerts ---
-function raise(key,sev,msg){active[key]={sev,msg}}
-function deriveAlerts(s,t){
- active={};
+// ---- alerts ----
+function raise(k,sev,msg){active[k]={sev,msg}}
+function deriveAlerts(s,t){active={};
  if(!s.connected)raise('conn','crit','NO SERIAL — controller link lost');
  if(s.estop)raise('estop','crit','E-STOP latched');
- if(s.tripped)raise('trip','crit','OVERCURRENT TRIP — '+(s.trip_reason||'stall detected'));
- if(s.mode==='momentary'&&s.deadman&&s.armed)raise('dead','warn','Deadman — no browser contact, forcing 0');
+ if(s.tripped)raise('trip','crit','TRIP — '+(s.trip_reason||'stall'));
+ if(s.mode==='momentary'&&s.deadman&&s.armed)raise('dead','warn','Deadman — no control contact, forcing 0');
  (t.faults||[]).forEach(f=>raise('flt_'+f,'crit','Controller fault: '+f));
- if(t.amps_m1!=null){
-  if(t.amps_m1>=ampLimit)raise('amax','crit','At current limit ('+t.amps_m1.toFixed(1)+' A)');
-  else if(t.amps_m1>=ampLimit*TH.ampWarn)raise('awarn','warn','Approaching current limit ('+t.amps_m1.toFixed(1)+' A)');
- }
+ if(t.amps_m1!=null){if(t.amps_m1>=ampLimit)raise('amax','crit','At current limit ('+t.amps_m1.toFixed(1)+' A)');
+  else if(t.amps_m1>=ampLimit*TH.ampWarn)raise('awarn','warn','Approaching current limit ('+t.amps_m1.toFixed(1)+' A)')}
  const tp=(t.temp&&t.temp.length)?Math.max(...t.temp):null;
- if(tp!=null){ if(tp>=TH.critHot)raise('hot','crit','Overheating ('+tp+'°C)'); else if(tp>=TH.hot)raise('warm','warn','Running hot ('+tp+'°C)'); }
- if(t.volts_batt!=null){ if(t.volts_batt<TH.vLow)raise('vlow','warn','Battery low ('+t.volts_batt.toFixed(1)+' V)'); if(t.volts_batt>TH.vHigh)raise('vhigh','crit','Battery high ('+t.volts_batt.toFixed(1)+' V)'); }
- // render active
+ if(tp!=null){if(tp>=TH.critHot)raise('hot','crit','Overheating ('+tp+'°C)');else if(tp>=TH.hot)raise('warm','warn','Running hot ('+tp+'°C)')}
+ if(t.volts_batt!=null){if(t.volts_batt<TH.vLow)raise('vlow','warn','Battery low ('+t.volts_batt.toFixed(1)+' V)');if(t.volts_batt>TH.vHigh)raise('vhigh','crit','Battery high ('+t.volts_batt.toFixed(1)+' V)')}
  const keys=Object.keys(active);
- $('aactive').innerHTML=keys.length? keys.map(k=>`<span class="chip ${active[k].sev}">${active[k].msg}</span>`).join('') : '<span class=none>✓ all clear</span>';
- // log new transitions
- keys.filter(k=>!prevActive[k]).forEach(k=>{
-  if(active[k].sev==='crit')beep();
-  const d=document.createElement('div'); d.className='sev-'+active[k].sev;
-  d.textContent=new Date().toLocaleTimeString()+'  '+active[k].msg;
-  $('alog').prepend(d); while($('alog').childElementCount>40)$('alog').lastChild.remove();
- });
- prevActive=Object.assign({},active);
-}
+ $('aactive').innerHTML=keys.length?keys.map(k=>`<span class="chip ${active[k].sev}">${active[k].msg}</span>`).join(''):'<span class=none>✓ all clear</span>';
+ keys.filter(k=>!prevActive[k]).forEach(k=>{if(active[k].sev==='crit')beep();const d=document.createElement('div');d.className='sev-'+active[k].sev;d.textContent=new Date().toLocaleTimeString()+'  '+active[k].msg;$('alog').prepend(d);while($('alog').childElementCount>40)$('alog').lastChild.remove()});
+ prevActive=Object.assign({},active)}
 
-function fmtDur(ms){const s=Math.floor(ms/1000);return (s>=60?Math.floor(s/60)+'m ':'')+(s%60)+'s'}
+// ---- context hint ----
+function hint(s){let h;
+ if(!s.connected)h='No serial link — check USB and restart the console.';
+ else if(s.estop)h='E-STOP engaged. Fix the cause, then Clear E-Stop, then ARM.';
+ else if(s.tripped)h='Tripped: clear the jam/cause → RESET TRIP → ARM.';
+ else if(!s.armed)h='Disarmed — press ARM to enable motion.';
+ else if(s.run_mode==='jog'&&s.deadman)h='No control contact — move the mouse or refocus this tab.';
+ else if(s.run_mode==='drift')h='Drifting. Tune amplitude/period; ARM off or E-STOP to stop.';
+ else if(s.run_mode==='jog')h='Armed — hold the slider to run, release to stop.';
+ else h='Armed — set a speed with the slider or Apply; it will hold.';
+ $('hint').textContent=h}
 
-function poll(){api('/api/state').then(s=>{ if(!s)return;
- armed=s.armed; ampLimit=s.amp_limit||5; latched=(s.mode==='latched');
- if($('mtog').textContent!==(latched?'LATCHED':'MOMENTARY'))paintMode();
- if(s.intent&&s.intent!==intent){intent=s.intent;paintIntent()}
- const t=s.tele||{};
+function fmtDur(ms){const s=Math.floor(ms/1000);return(s>=60?Math.floor(s/60)+'m ':'')+(s%60)+'s'}
+
+function poll(){api('/api/state').then(s=>{if(!s)return;
+ if(s.run_mode&&s.run_mode!==rmode){rmode=s.run_mode;paintMode()}
+ const t=s.tele||{};ampLimit=s.amp_limit||5;
  // status
- $('tripcard').style.display=s.tripped?'block':'none';
- $('tripreason').textContent=s.trip_reason||'';
  let stx='RUN',cls='ok';
- if(!s.connected){stx='NO SERIAL';cls='bad'} else if(s.estop){stx='E-STOP';cls='bad'}
+ if(!s.connected){stx='NO SERIAL';cls='bad'}else if(s.estop){stx='E-STOP';cls='bad'}
  else if(s.tripped){stx='TRIPPED';cls='bad'}
- else if(s.mode==='momentary'&&s.deadman){stx='DEADMAN';cls='warn'} else if(!s.armed){stx='DISARMED';cls='warn'}
- else if(s.applied!=0){stx='RUNNING';cls='ok'} else {stx='ARMED · 0';cls='ok'}
+ else if(s.run_mode==='jog'&&s.deadman){stx='DEADMAN';cls='warn'}else if(!s.armed){stx='DISARMED';cls='warn'}
+ else if(s.applied!=0){stx='RUNNING';cls='ok'}else{stx='ARMED · 0';cls='ok'}
  $('st').textContent=stx;$('st').className='pill '+cls;
  const a=$('arm');a.textContent=s.armed?'ARMED':'DISARMED';a.className='arm'+(s.armed?'':' off');
+ if(s.run_mode==='drift')$('cmd').textContent=s.applied; // reflect oscillator
+ $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
+ hint(s);
  // history + heuristics
- const amps=(t.amps_m1!=null)?t.amps_m1:0, v=(t.volts_batt!=null)?t.volts_batt:0;
- HIST.push({a:amps,ap:s.applied}); while(HIST.length>MAXH)HIST.shift();
- if(s.armed&&s.applied!=0){ if(!runStart)runStart=performance.now(); } else runStart=0;
- if(amps>peak)peak=amps; if(v>nomV)nomV=v;
+ const amps=(t.amps_m1!=null)?t.amps_m1:0,v=(t.volts_batt!=null)?t.volts_batt:0;
+ HIST.push({a:amps,ap:s.applied});while(HIST.length>MAXH)HIST.shift();
+ if(s.armed&&s.applied!=0){if(!runStart)runStart=performance.now()}else runStart=0;
+ if(amps>peak)peak=amps;if(v>nomV)nomV=v;
  const avg=HIST.reduce((m,p)=>m+p.a,0)/HIST.length;
  $('h_pw').textContent=(t.amps_m1!=null&&t.volts_batt!=null)?(amps*v).toFixed(0)+' W':'—';
- $('h_pk').textContent=peak.toFixed(1)+' A'; $('h_av').textContent=avg.toFixed(1)+' A';
- $('h_ap').textContent=(s.applied/10).toFixed(0)+' %'; $('h_bv').textContent=(t.volts_batt!=null)?v.toFixed(1)+' V':'—';
+ $('h_pk').textContent=peak.toFixed(1)+' A';$('h_av').textContent=avg.toFixed(1)+' A';
+ $('h_ap').textContent=(s.applied/10).toFixed(0)+' %';$('h_bv').textContent=(t.volts_batt!=null)?v.toFixed(1)+' V':'—';
  $('h_sg').textContent=(nomV&&t.volts_batt!=null)?'-'+(nomV-v).toFixed(1)+' V':'—';
- const tp=(t.temp&&t.temp.length)?Math.max(...t.temp):null; $('h_tp').textContent=(tp!=null)?tp+'°C':'—';
+ const tp=(t.temp&&t.temp.length)?Math.max(...t.temp):null;$('h_tp').textContent=(tp!=null)?tp+'°C':'—';
  $('h_rt').textContent=runStart?fmtDur(performance.now()-runStart):'idle';
  $('h_ht').textContent=(s.heat_budget>0)?Math.round(100*s.heat_now/s.heat_budget)+'%':'off';
+ drawMotion();drawLoad();deriveAlerts(s,t);
+ // profile
  if(!profBuilt&&s.profile&&Object.keys(s.profile).length)buildProf(s.profile);
  if(profBuilt)PROF.forEach(r=>{const c=$('cur_'+r[0]);if(c)c.textContent=(s.profile&&s.profile[r[0]]!=null)?s.profile[r[0]]:'—'});
  $('cfglog').textContent=(s.config_log||[]).map(c=>`${c.t} ${c.key}=${c.val} ${c.ok?'✓':'✗('+(c.readback||'?')+')'}`).join('\n');
- draw(); deriveAlerts(s,t);
- // health table
+ // health
  const f=(t.faults&&t.faults.length)?t.faults.join(' '):'none';
- $('tele').innerHTML=[
-  ['Applied cmd',s.applied+' / 1000'],['Motor amps',(t.amps_m1!=null?t.amps_m1.toFixed(1)+' A':'—')],
+ $('tele').innerHTML=[['Applied cmd',s.applied+' / 1000'],['Motor amps',(t.amps_m1!=null?t.amps_m1.toFixed(1)+' A':'—')],
   ['Battery',(t.volts_batt!=null?t.volts_batt.toFixed(1)+' V':'—')],['5V out',(t.volts_5v!=null?t.volts_5v.toFixed(2)+' V':'—')],
-  ['Temp °C',(t.temp?t.temp.join(' / '):'—')],['Faults','<span class=faults>'+f+'</span>'],
- ].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+  ['Temp °C',(t.temp?t.temp.join(' / '):'—')],['Faults','<span class=faults>'+f+'</span>']].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
  // diagnostics
  const ai=t.ain||[],pi=t.pin||[],ac=t.aic||[];
  $('diag').innerHTML='<tr><th>In</th><th>Source</th><th>Analog mV</th><th>Pulse</th><th>Conv cmd</th></tr>'+
-  SRC.map((r,i)=>{const live=(ai[i]!=null&&ai[i]>60),c=live?'live':'dead';
-   return `<tr><td>${r[0]}</td><td class=${c}>${r[1]}</td><td class=${c}>${ai[i]??'—'}</td><td>${pi[i]??'—'}</td><td>${ac[i]??'—'}</td></tr>`}).join('');
+  SRC.map((r,i)=>{const live=(ai[i]!=null&&ai[i]>60),c=live?'live':'dead';return `<tr><td>${r[0]}</td><td class=${c}>${r[1]}</td><td class=${c}>${ai[i]??'—'}</td><td>${pi[i]??'—'}</td><td>${ac[i]??'—'}</td></tr>`}).join('');
 })}
-setInterval(poll,150);poll();
+paintMode();setInterval(poll,150);poll();
 </script></body></html>

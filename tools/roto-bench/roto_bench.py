@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import math
 import sys
 import threading
 import time
@@ -76,8 +77,11 @@ class State:
         self.cap = cap
         self.armed = False
         self.estop = False
-        self.mode = "momentary"          # momentary | latched
-        self.intent = "run"              # run | hold
+        self.mode = "momentary"          # derived report: momentary | latched
+        self.intent = "run"              # derived report: run | hold
+        self.run_mode = "jog"            # jog | cruise | drift | hold
+        self.osc_amp = 150.0             # DRIFT amplitude (command units)
+        self.osc_period = 20.0           # DRIFT period (seconds)
         self.tripped = False
         self.trip_reason = ""
         self.trip_amps = TRIP_AMPS_DEFAULT
@@ -99,6 +103,7 @@ class State:
             return {
                 "target": self.target, "applied": round(self.applied), "cap": self.cap,
                 "armed": self.armed, "estop": self.estop, "mode": self.mode, "intent": self.intent,
+                "run_mode": self.run_mode, "osc_amp": self.osc_amp, "osc_period": self.osc_period,
                 "tripped": self.tripped, "trip_reason": self.trip_reason,
                 "trip_amps": self.trip_amps, "trip_ms": self.trip_ms,
                 "temp_trip": self.temp_trip, "heat_budget": self.heat_budget,
@@ -215,6 +220,7 @@ class Worker(threading.Thread):
 
     def run(self):
         applied = 0.0
+        osc_phase = 0.0
         over_since = None
         while not self._halt.is_set():
             try:
@@ -225,12 +231,16 @@ class Worker(threading.Thread):
 
                 now = time.monotonic()
                 with self.state.lock:
-                    target, cap, mode, intent = self.state.target, self.state.cap, self.state.mode, self.state.intent
+                    target, cap = self.state.target, self.state.cap
+                    run_mode = self.state.run_mode
+                    osc_amp, osc_period = self.state.osc_amp, self.state.osc_period
                     armed, estop, tripped = self.state.armed, self.state.estop, self.state.tripped
                     trip_amps, trip_ms = self.state.trip_amps, self.state.trip_ms
                     temp_trip, heat_budget, heat_now = self.state.temp_trip, self.state.heat_budget, self.state.heat_now
                     deadman = (now - self.state.last_contact) > DEADMAN_S
                     temps = self.state.tele.get("temp") or []
+                momentary = (run_mode == "jog")           # hold-to-run
+                intent = "hold" if run_mode == "hold" else "run"   # trip context
 
                 # --- fast amps + trip evaluation --------------------------- #
                 amps, amps_raw = self._sample_amps()
@@ -264,12 +274,17 @@ class Worker(threading.Thread):
                     tripped, armed = True, False
 
                 # --- command gate + slew ----------------------------------- #
+                if run_mode == "drift":                  # auto slow sweep
+                    osc_phase += 2 * math.pi * CMD_PERIOD / max(osc_period, 0.5)
+                    src = osc_amp * math.sin(osc_phase)
+                else:
+                    src = target
                 if estop or tripped or not armed:
                     desired = 0.0
-                elif mode == "momentary" and deadman:
+                elif momentary and deadman:
                     desired = 0.0
                 else:
-                    desired = clamp(target, -cap, cap)
+                    desired = clamp(src, -cap, cap)
                 if applied < desired:
                     applied = min(desired, applied + SLEW_PER_TICK)
                 elif applied > desired:
@@ -312,6 +327,8 @@ class Worker(threading.Thread):
                     self.state.applied = applied
                     self.state.deadman = deadman
                     self.state.heat_now = heat_now
+                    self.state.mode = "momentary" if momentary else "latched"
+                    self.state.intent = intent
                     if amps_raw is not None:
                         decode("?A", amps_raw, self.state.tele)
                     if aux_query is not None:
@@ -396,13 +413,15 @@ class Handler(BaseHTTPRequestHandler):
             with st.lock:
                 st.armed = on and not st.estop and not st.tripped
             self._json({"ok": True})
-        elif u.path == "/api/mode":
+        elif u.path == "/api/runmode":
+            m = q.get("m", ["jog"])[0]
             with st.lock:
-                st.mode = "latched" if q.get("m", [""])[0] == "latched" else "momentary"
+                st.run_mode = m if m in ("jog", "cruise", "drift", "hold") else "jog"
             self._json({"ok": True})
-        elif u.path == "/api/intent":
+        elif u.path == "/api/osc":
             with st.lock:
-                st.intent = "hold" if q.get("i", [""])[0] == "hold" else "run"
+                st.osc_amp = clamp(self._num(q, "amp", st.osc_amp), 0, 1000)
+                st.osc_period = clamp(self._num(q, "period", st.osc_period), 0.5, 600)
             self._json({"ok": True})
         elif u.path == "/api/estop":
             with st.lock:
