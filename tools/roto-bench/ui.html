@@ -129,8 +129,25 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  </div>
 
  <div class=row id=speedbox style="margin-top:10px;display:none">
-  <span>Speed <input id=num class=num type=number min=-100 max=100 value=0 step=5 title="Type an exact speed as % and apply (CRUISE/HOLD/CREEP).">%</span>
-  <button id=set class=zero title="Apply the exact speed typed at left (CRUISE / HOLD / CREEP).">Go</button>
+  <span>Speed <input id=num class=num type=number min=-100 max=100 value=0 step=5 title="Type an exact speed as % and apply (CRUISE).">%</span>
+  <button id=set class=zero title="Apply the exact speed typed at left (CRUISE).">Go</button>
+ </div>
+
+ <div id=effortbox style="display:none;margin-top:10px">
+  <div class=row style="justify-content:center;gap:6px">
+   <button id=effRev class=modebtn style="flex:0 0 auto;min-width:96px" title="Hold / creep in the reverse direction.">◀ Rev</button>
+   <button id=effFwd class="modebtn on" style="flex:0 0 auto;min-width:96px" title="Hold / creep in the forward direction.">Fwd ▶</button>
+  </div>
+  <div class=val id=effval style="font-size:36px;margin-top:6px">0%</div>
+  <div class=cap2 style="text-align:center;margin:-6px 0 4px">effort — energy into the drive</div>
+  <input id=effsl class=birange type=range min=0 max=15 value=0 step=1 title="Effort magnitude as % (0 to the speed cap). Fine, low-range control for holding or creeping under load — the whole travel is the usable band.">
+  <div class=sllbl><span>0%</span><span id=effmax>max</span></div>
+  <div class=row style="justify-content:center;gap:6px;margin-top:8px">
+   <button id=effm5 class=clr title="Ease off 5%.">−5</button>
+   <button id=effm1 class=clr title="Ease off 1%.">−1</button>
+   <button id=effp1 class=clr title="Add 1%.">+1</button>
+   <button id=effp5 class=clr title="Add 5%.">+5</button>
+  </div>
  </div>
 
  <div id=driftbox style="display:none;margin-top:10px">
@@ -317,12 +334,15 @@ function paintMode(){
  MODELIST.forEach(m=>$('m_'+m).className='modebtn'+(m===rmode?' on':''));
  $('modedesc').textContent=MODES[rmode];
  const showSlider=(rmode==='jog'||rmode==='cruise');
- const showSpeed=(rmode==='cruise'||rmode==='hold'||rmode==='creep');
+ const showEffort=(rmode==='hold'||rmode==='creep');   // HOLD/CREEP: fine effort panel instead of a speed slider
  $('sl').parentNode.style.display=showSlider?'block':'none';   // hide the whole wrapper (labels + center tick), not just the input
- $('speedbox').style.display=showSpeed?'flex':'none';
+ $('cmd').style.display=showEffort?'none':'block';   // effort modes use the effort panel's own readout
+ $('speedbox').style.display=(rmode==='cruise')?'flex':'none';
+ $('effortbox').style.display=showEffort?'block':'none';
  $('driftbox').style.display=(rmode==='drift')?'block':'none';
  $('creepbox').style.display=(rmode==='creep')?'flex':'none';
  $('sl').disabled=false;
+ if(showEffort)effSync();   // reflect the current command in the effort control
 }
 MODELIST.forEach(m=>$('m_'+m).onclick=()=>setMode(m));
 
@@ -334,8 +354,26 @@ function paintSlider(){paintBi($('sl'))}
 function paintDrift(){paintBi($('dA_spd'));paintBi($('dB_spd'))}
 function capPct(){return Math.max(0,Math.min(100,+$('cap').value||0))}
 function applyCap(){var cp=capPct(),s=$('sl');   // the slider physically can't exceed the cap
- s.min=-cp;s.max=cp;if(+s.value>cp)s.value=cp;if(+s.value<-cp)s.value=-cp;paintSlider();}
+ s.min=-cp;s.max=cp;if(+s.value>cp)s.value=cp;if(+s.value<-cp)s.value=-cp;paintSlider();
+ var e=$('effsl');e.max=cp;if(+e.value>cp)e.value=cp;$('effmax').textContent=cp+'%';paintEffort();}
 $('sl').addEventListener('input',e=>{if(blocked())flashBlk();setCmd(+e.target.value);paintSlider()});
+// ---- HOLD/CREEP fine effort control (direction toggle + low-range dial + nudges) ----
+let effDir=1;                                    // +1 forward, -1 reverse
+function paintEffort(){var s=$('effsl'),mx=(+s.max)||1,f=(+s.value/mx)*100;   // left-fill = magnitude
+ s.style.background='linear-gradient(to right,#238636 '+f+'%,#30363d '+f+'%)';}
+function effApply(){var mag=+$('effsl').value,cmd=effDir*mag;
+ $('effval').textContent=(mag===0)?'0%':(mag+'% '+(effDir>0?'fwd':'rev'));
+ $('effFwd').className='modebtn'+(effDir>0?' on':'');$('effRev').className='modebtn'+(effDir<0?' on':'');
+ paintEffort();setCmd(cmd);}
+function effSet(mag){var cp=capPct();$('effsl').value=Math.max(0,Math.min(cp,mag));effApply();}
+function effSync(){var ap=(S&&S.applied!=null)?S.applied:0;effDir=(ap<0)?-1:1;effSet(Math.abs(toPct(ap)));}
+$('effsl').addEventListener('input',()=>{if(blocked())flashBlk();effApply()});
+$('effFwd').onclick=()=>{effDir=1;effApply()};
+$('effRev').onclick=()=>{effDir=-1;effApply()};
+$('effp1').onclick=()=>effSet(+$('effsl').value+1);
+$('effp5').onclick=()=>effSet(+$('effsl').value+5);
+$('effm1').onclick=()=>effSet(+$('effsl').value-1);
+$('effm5').onclick=()=>effSet(+$('effsl').value-5);
 function release(){if(rmode==='jog'){$('sl').value=0;setCmd(0)}}
 document.addEventListener('mouseup',release);document.addEventListener('touchend',release);
 function setCmd(p){$('cmd').textContent=p+'%';api('/api/set?g='+toRaw(p))}   // p is percent
