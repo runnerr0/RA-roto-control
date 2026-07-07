@@ -101,8 +101,8 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 </div>
 
 <div class=card id=cmdcard>
- <div class="row spread"><span>Status: <span id=st class="pill warn">…</span></span>
-  <span>Speed cap ±<input id=cap class=cap type=number min=0 max=100 value=15 title="Ceiling on command magnitude, as % of full speed. Limits top speed regardless of mode.">%</span></div>
+ <div class="row" style="justify-content:flex-end">
+  <span>Speed cap ±<input id=cap class=cap type=number min=0 max=100 value=15 title="Ceiling on command magnitude, as % of full speed. Enforced in every mode — the slider and Go can't exceed it, and the motor is clamped to it.">%</span></div>
 
  <div class=row style="margin-top:10px">
   <button class=modebtn id=m_jog title="JOG — hold the slider to run, release to stop. For setup and positioning.">JOG</button>
@@ -122,6 +122,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <span class=slmid></span>
   <div class=sllbl><span>◀ reverse</span><span>stop</span><span>forward ▶</span></div>
  </div>
+ <div id=caphint class=cap2 style="text-align:center;color:#d29922;min-height:14px;margin-top:2px"></div>
 
  <div class=row style="margin-top:10px">
   <button id=zero class=clr title="Bring the motor to a stop (command 0) without disarming — stays in this mode, ready to drive again.">■ Stop</button>
@@ -304,7 +305,7 @@ const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioni
  creep:'Very slow under load. Stall-trip OFF (slow+load looks like a stall) — temp/I²t protect. Anti-stiction kick on start.'};
 const MODELIST=['jog','cruise','drift','hold','creep'];
 const HIST=[],MAXH=400;
-let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={},S=null,driftSynced=false,govSynced=false;
+let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={},S=null,driftSynced=false,govSynced=false,capSynced=false;
 const TH={hot:60,critHot:80,ampWarn:0.8,vLow:18,vHigh:52};
 function api(p){return new Promise(function(res){try{var x=new XMLHttpRequest();x.open('GET',p);x.onreadystatechange=function(){if(x.readyState===4){try{res(JSON.parse(x.responseText))}catch(e){res(null)}}};x.onerror=function(){res(null)};x.send()}catch(e){res(null)}})}
 function blocked(){return S&&(!S.armed||S.estop||S.tripped)}
@@ -329,16 +330,21 @@ MODELIST.forEach(m=>$('m_'+m).onclick=()=>setMode(m));
 function paintSlider(){var s=$('sl'),v=+s.value,pos=50+v/2,lo=Math.min(50,pos),hi=Math.max(50,pos);
  var col=(v>0)?'#238636':(v<0?'#b0740a':'#30363d');   // green fwd / amber rev / grey stop
  s.style.background='linear-gradient(to right,#30363d '+lo+'%,'+col+' '+lo+'%,'+col+' '+hi+'%,#30363d '+hi+'%)';}
+function capPct(){return Math.max(0,Math.min(100,+$('cap').value||0))}
+function applyCap(){var cp=capPct(),s=$('sl');   // the slider physically can't exceed the cap
+ s.min=-cp;s.max=cp;if(+s.value>cp)s.value=cp;if(+s.value<-cp)s.value=-cp;paintSlider();}
 $('sl').addEventListener('input',e=>{if(blocked())flashBlk();setCmd(+e.target.value);paintSlider()});
 function release(){if(rmode==='jog'){$('sl').value=0;setCmd(0)}}
 document.addEventListener('mouseup',release);document.addEventListener('touchend',release);
 function setCmd(p){$('cmd').textContent=p+'%';api('/api/set?g='+toRaw(p))}   // p is percent
-$('set').onclick=()=>{if(blocked())flashBlk();const v=+$('num').value;$('sl').value=v;setCmd(v)};
+$('set').onclick=()=>{if(blocked())flashBlk();var cp=capPct(),v=+$('num').value;
+ if(Math.abs(v)>cp){v=(v<0?-cp:cp);$('num').value=v;$('cap').classList.add('blk');setTimeout(()=>$('cap').classList.remove('blk'),350);}  // clamped to cap
+ $('sl').value=v;setCmd(v);paintSlider()};
 $('arm').onclick=()=>api('/api/arm?on='+($('arm').classList.contains('off')?1:0));
 $('zero').onclick=()=>{$('sl').value=0;$('num').value=0;setCmd(0)};
 $('es').onclick=()=>{$('sl').value=0;setCmd(0);api('/api/estop')};
 $('clr').onclick=()=>api('/api/clear');
-$('cap').onchange=e=>api('/api/cap?v='+toRaw(e.target.value));
+$('cap').onchange=e=>{api('/api/cap?v='+toRaw(e.target.value));applyCap();};
 $('tset').onclick=()=>api('/api/trip?amps='+$('tamps').value+'&ms='+$('tms').value);
 $('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('theat').value);
 $('govset').onclick=()=>api('/api/governor?on='+($('govon').checked?1:0)+'&frac='+($('govfrac').value/100));
@@ -500,8 +506,10 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  else if(s.tripped){stx='TRIPPED';cls='bad'}
  else if(s.run_mode==='jog'&&s.deadman){stx='DEADMAN';cls='warn'}else if(!s.armed){stx='DISARMED';cls='warn'}
  else if(s.applied!=0){stx='RUNNING';cls='ok'}else{stx='ARMED · 0';cls='ok'}
- $('st').textContent=stx;$('st').className='pill '+cls;
- $('st2').textContent=stx;$('st2').className='pill '+cls;
+ $('st2').textContent=stx;$('st2').className='pill '+cls;   // status lives only in the always-visible top bar
+ if(!capSynced&&s.cap!=null){capSynced=true;$('cap').value=toPct(s.cap);applyCap();}  // reflect the enforced cap from init
+ var cp=capPct();                                          // speed-cap feedback
+ $('caphint').textContent=(cp>0&&Math.abs(toPct(s.applied))>=cp)?('⚠ at speed cap ('+cp+'%) — raise the cap above to go faster'):'';
  $('bar_amps').textContent=(t.amps_m1!=null)?t.amps_m1.toFixed(1)+' A':'—';
  $('bar_cmd').textContent=toPct(s.applied)+'%';
  const a=$('arm');a.textContent=s.armed?'ARMED':'DISARMED';a.className='arm'+(s.armed?'':' off');
@@ -578,5 +586,5 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('diag').innerHTML='<tr><th>In</th><th>Source</th><th>Analog mV</th><th>Pulse</th><th>Conv cmd</th></tr>'+
   SRC.map((r,i)=>{const live=(ai[i]!=null&&ai[i]>60),c=live?'live':'dead';return `<tr><td>${r[0]}</td><td class=${c}>${r[1]}</td><td class=${c}>${D(ai[i])}</td><td>${D(pi[i])}</td><td>${D(ac[i])}</td></tr>`}).join('');
 })}
-paintMode();loadPresetList();fitBar();paintSlider();setInterval(poll,150);poll();
+paintMode();loadPresetList();fitBar();applyCap();paintSlider();setInterval(poll,150);poll();
 </script></body></html>
