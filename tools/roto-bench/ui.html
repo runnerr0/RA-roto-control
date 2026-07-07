@@ -42,14 +42,14 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 @keyframes shk{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(6px)}70%{transform:translateX(-4px)}}
 .blk{animation:shk .32s;box-shadow:0 0 0 2px #da3633 inset;border-color:#da3633!important}
 #gate{color:#f85149;text-align:center;font-size:13px;font-weight:700;min-height:17px;margin:2px 0}
-.topbar{position:sticky;top:0;z-index:100;background:#0d1117;border-bottom:1px solid #30363d;margin:-18px -18px 8px;padding:9px 18px}
-.topbar-main{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.topbar{position:fixed;top:0;left:0;right:0;z-index:100;background:#0d1117;border-bottom:1px solid #30363d;padding:9px 18px;box-shadow:0 2px 8px #0008}
+.topbar-main{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .topbar .estop{flex:0 0 auto;font-size:16px;padding:9px 16px}
 .barlive{font:600 13px ui-monospace,monospace;color:#c9d1d9;white-space:nowrap}
 .barlive b{color:#58a6ff}
 .barbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:8px 12px;font-size:13px}
 .barbtn.on{background:#8957e5;border-color:#8957e5;color:#fff}
-.helpstrip{margin-top:7px;padding:6px 10px;background:#0d2440;border:1px solid #1f6feb44;color:#79c0ff;border-radius:6px;font-size:12px;min-height:16px}
+.helpstrip{max-width:760px;margin:7px auto 0;padding:6px 10px;background:#0d2440;border:1px solid #1f6feb44;color:#79c0ff;border-radius:6px;font-size:12px;min-height:16px}
 /* two-phase drift instrument */
 .drow{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
 .dlbl{min-width:140px;font-size:13px;color:#8b949e}
@@ -78,7 +78,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 <div class=card id=tripcard style="display:none;border-color:#da3633">
  <b style="color:#f85149">⚠ TRIP — motor stopped &amp; disarmed</b>
  <div id=tripreason class=sub></div>
- <div class=row style="margin-top:10px"><button class=zero id=rtrip>RESET TRIP</button></div>
+ <div class=row style="margin-top:10px"><button class=zero id=rtrip title="Clear the trip/fault so you can ARM again — fix the cause first.">RESET TRIP</button></div>
 </div>
 
 <div class=card><b>Motion &amp; load <span class=q title="Open-loop: commanded motion is the speed proxy; current is the load/effort.">?</span></b>
@@ -93,11 +93,11 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <span>Speed cap ±<input id=cap class=cap type=number min=0 max=1000 value=150 title="Ceiling on command magnitude (0-1000). Limits top speed regardless of mode."></span></div>
 
  <div class=row style="margin-top:10px">
-  <button class=modebtn id=m_jog>JOG</button>
-  <button class=modebtn id=m_cruise>CRUISE</button>
-  <button class=modebtn id=m_drift>DRIFT</button>
-  <button class=modebtn id=m_hold>HOLD</button>
-  <button class=modebtn id=m_creep>CREEP</button>
+  <button class=modebtn id=m_jog title="JOG — hold the slider to run, release to stop. For setup and positioning.">JOG</button>
+  <button class=modebtn id=m_cruise title="CRUISE — set a speed and it holds it. Stall-protected.">CRUISE</button>
+  <button class=modebtn id=m_drift title="DRIFT — drives itself back and forth between Side A and Side B (two-phase).">DRIFT</button>
+  <button class=modebtn id=m_hold title="HOLD — maintain position under load; stall-trip off, temp/I²t still guard.">HOLD</button>
+  <button class=modebtn id=m_creep title="CREEP — very slow under load; anti-stiction kick on start.">CREEP</button>
  </div>
  <div class=desc id=modedesc></div>
 
@@ -105,11 +105,11 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div id=gate></div>
  <div id=botag style="color:#d29922;text-align:center;font-size:13px;font-weight:700;min-height:16px"></div>
 
- <input id=sl type=range min=-1000 max=1000 value=0 step=1>
+ <input id=sl type=range min=-1000 max=1000 value=0 step=1 title="Speed slider — drag for speed and direction (center = stop). In JOG, release to stop.">
 
  <div class=row id=speedbox style="margin-top:10px;display:none">
   <span>Speed <input id=num class=num type=number min=-1000 max=1000 value=0 step=10 title="Type an exact speed and apply (CRUISE/HOLD/CREEP)."></span>
-  <button id=set class=zero>Go</button>
+  <button id=set class=zero title="Apply the exact speed typed at left (CRUISE / HOLD / CREEP).">Go</button>
   <span class=q title="Type an exact speed and apply — used in CRUISE / HOLD / CREEP.">?</span>
  </div>
 
@@ -339,7 +339,9 @@ let helpMode=false;
 function findHelp(el){while(el&&el!==document.body){if(el.getAttribute){const h=el.getAttribute('data-help')||el.getAttribute('title');if(h)return h}el=el.parentNode}return ''}
 $('helptog').onclick=()=>{helpMode=!helpMode;$('helptog').className='barbtn'+(helpMode?' on':'');
  $('helpstrip').style.display=helpMode?'block':'none';
- if(helpMode)$('helpstrip').textContent='Help mode on — point at any control for an explanation.'};
+ if(helpMode)$('helpstrip').textContent='Help mode on — point at any control for an explanation.';fitBar()};
+function fitBar(){document.querySelector('.wrap').style.paddingTop=($('topbar').offsetHeight+8)+'px'}
+window.addEventListener('resize',fitBar);
 document.addEventListener('mouseover',e=>{if(!helpMode)return;const h=findHelp(e.target);if(h)$('helpstrip').textContent=h});
 
 // ---- copy log info to clipboard ----
@@ -549,5 +551,5 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('diag').innerHTML='<tr><th>In</th><th>Source</th><th>Analog mV</th><th>Pulse</th><th>Conv cmd</th></tr>'+
   SRC.map((r,i)=>{const live=(ai[i]!=null&&ai[i]>60),c=live?'live':'dead';return `<tr><td>${r[0]}</td><td class=${c}>${r[1]}</td><td class=${c}>${D(ai[i])}</td><td>${D(pi[i])}</td><td>${D(ac[i])}</td></tr>`}).join('');
 })}
-paintMode();loadPresetList();setInterval(poll,150);poll();
+paintMode();loadPresetList();fitBar();setInterval(poll,150);poll();
 </script></body></html>
