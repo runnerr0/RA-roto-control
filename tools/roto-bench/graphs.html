@@ -1,0 +1,113 @@
+<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>RA Roto — Live Graphs</title><style>
+body{font:14px/1.4 system-ui,sans-serif;margin:0;background:#0d1117;color:#c9d1d9}
+.wrap{padding:14px}
+.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:18px;margin:0}
+.pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+.ok{background:#1a3d1f;color:#3fb950}.bad{background:#3d1a1a;color:#f85149}.warn{background:#3d331a;color:#d29922}
+button{font:600 14px system-ui;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;color:#fff}
+.estop{background:#da3633}.btn{background:#21262d;color:#c9d1d9;border:1px solid #30363d}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px}
+.stat{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 10px}
+.stat .k{font-size:11px;color:#8b949e}.stat .v{font:700 26px ui-monospace,monospace;margin-top:2px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px;margin-bottom:12px}
+.card b{display:block;margin-bottom:6px;font-size:13px}
+canvas{width:100%;display:block;background:#0d1117;border:1px solid #21262d;border-radius:8px}
+.cap{font-size:11px;color:#8b949e;margin-top:5px}.cap i{color:#3fb950;font-style:normal}.cap u{color:#d29922;text-decoration:none}
+.leg{font-size:12px}.leg span{display:inline-block;margin-right:12px}
+</style></head><body><div class=wrap>
+<div class=bar>
+ <h1>RA Roto — Live Graphs</h1>
+ <span id=st class="pill warn">…</span>
+ <span id=conn class=cap></span>
+ <span style="flex:1"></span>
+ <button class=btn id=png>Export PNG</button>
+ <button class=estop id=es>■ E-STOP</button>
+</div>
+<div class=grid id=stats></div>
+<div class=card><b>Commanded motion</b><canvas id=cmot height=200></canvas>
+ <div class=cap><i>+ forward</i> / <u>− reverse</u>, center = stop.</div></div>
+<div class=card><b>Motor current (load)</b><canvas id=cload height=200></canvas>
+ <div class=cap>red dashed = current limit.</div></div>
+<div class=card><b>All telemetry</b><canvas id=cadv height=240></canvas>
+ <div class=leg id=leg style="margin-top:6px"></div></div>
+</div>
+<script>
+function $(i){return document.getElementById(i)}
+function D(v,f){return (v===null||v===undefined)?f:v}
+function api(path,cb){var x=new XMLHttpRequest();x.open('GET',path);x.onreadystatechange=function(){
+ if(x.readyState===4){if(x.status===200){try{cb&&cb(JSON.parse(x.responseText))}catch(e){}}else if(cb===false){}}};x.send()}
+$('es').onclick=function(){api('/api/estop')};
+var HIST=[],MAXH=300;
+var SER=[['amps','#f85149','motor A'],['supply','#d29922','supply A'],['power','#58a6ff','power %'],
+         ['volts','#3fb950','volts'],['temp','#db61a2','temp °C']];
+var legHTML=SER.map(function(s){return '<span style="color:'+s[1]+'">■ '+s[2]+'</span>'}).join('');
+$('leg').innerHTML=legHTML;
+
+function draw(cid,key,opts){var c=$(cid),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height;x.clearRect(0,0,W,H);
+ if(HIST.length<2)return;var dx=W/(MAXH-1);
+ if(opts&&opts.limit!=null){var yl=H-(H*0.9)*(opts.limit/opts.max);x.strokeStyle='#f8514988';x.setLineDash([5,4]);
+  x.beginPath();x.moveTo(0,yl);x.lineTo(W,yl);x.stroke();x.setLineDash([]);
+  x.fillStyle='#f85149';x.font='11px ui-monospace';x.fillText(opts.limit.toFixed(1)+' A',4,yl-4)}
+ var mn=opts&&opts.min!=null?opts.min:0, mx=opts&&opts.max!=null?opts.max:1;
+ if(opts&&opts.auto){var vs=[];HIST.forEach(function(h){var v=h[key];if(v!=null&&!isNaN(v))vs.push(v)});
+  if(vs.length){mn=Math.min.apply(null,vs);mx=Math.max.apply(null,vs);if(mx-mn<1e-6){mx=mn+1;mn=mn-1}}}
+ if(opts&&opts.zero){x.strokeStyle='#30363d';var yz=H-(H*0.9)*((0-mn)/(mx-mn))-H*0.05;
+  x.beginPath();x.moveTo(0,yz);x.lineTo(W,yz);x.stroke()}
+ x.strokeStyle=(opts&&opts.color)||'#58a6ff';x.lineWidth=1.6;x.beginPath();var started=false;
+ HIST.forEach(function(h,i){var v=h[key];if(v==null||isNaN(v)){started=false;return}
+  var y=H*0.05+(H*0.9)*(1-(v-mn)/(mx-mn));started?x.lineTo(i*dx,y):x.moveTo(i*dx,y);started=true});
+ x.stroke();x.lineWidth=1}
+
+function drawAdv(){var c=$('cadv'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height;x.clearRect(0,0,W,H);
+ if(HIST.length<2)return;var dx=W/(MAXH-1);
+ SER.forEach(function(sr){var nums=[];HIST.forEach(function(h){var v=h[sr[0]];if(v!=null&&!isNaN(v))nums.push(v)});
+  if(nums.length<2)return;var mn=Math.min.apply(null,nums),mx=Math.max.apply(null,nums);if(mx-mn<1e-6){mx=mn+1;mn=mn-1}
+  x.strokeStyle=sr[1];x.lineWidth=1.5;x.beginPath();var started=false;
+  HIST.forEach(function(h,i){var v=h[sr[0]];if(v==null||isNaN(v)){started=false;return}
+   var y=H*0.04+(H*0.92)*(1-(v-mn)/(mx-mn));started?x.lineTo(i*dx,y):x.moveTo(i*dx,y);started=true});
+  x.stroke()});x.lineWidth=1}
+
+function tile(k,v){return '<div class=stat><div class=k>'+k+'</div><div class=v>'+v+'</div></div>'}
+function poll(){api('/api/state',function(s){
+ var tl=s.tele.temp||[],tmax=tl.length?Math.max.apply(null,tl):null;
+ HIST.push({applied:D(s.applied,0),target:D(s.target,0),amps:s.tele.amps_m1,
+  supply:s.tele.batt_amps,power:s.tele.power,volts:s.tele.volts_batt,temp:tmax});
+ if(HIST.length>MAXH)HIST.shift();
+ var lim=D(s.amp_limit,5);
+ // status
+ var stp=$('st');if(s.estop){stp.className='pill bad';stp.textContent='E-STOP'}
+ else if(s.tripped){stp.className='pill bad';stp.textContent='TRIPPED'}
+ else if(!s.connected){stp.className='pill warn';stp.textContent='NO LINK'}
+ else if(s.armed){stp.className='pill ok';stp.textContent=(Math.abs(D(s.applied,0))>0?'RUNNING':'ARMED')}
+ else{stp.className='pill warn';stp.textContent='DISARMED'}
+ $('conn').textContent=s.run_mode?('mode '+s.run_mode.toUpperCase()):'';
+ // stats
+ var atlim=s.tele.at_limit?' <span class="pill bad">AT-LIMIT</span>':'';
+ $('stats').innerHTML=
+  tile('Command',Math.round(D(s.applied,0))+atlim)+
+  tile('Motor A',(s.tele.amps_m1!=null?s.tele.amps_m1.toFixed(1):'—'))+
+  tile('Supply A',(s.tele.batt_amps!=null?s.tele.batt_amps.toFixed(1):'—'))+
+  tile('Power %',(s.tele.power!=null?Math.round(s.tele.power/10):'—'))+
+  tile('Volts',(s.tele.volts_batt!=null?s.tele.volts_batt.toFixed(1):'—'))+
+  tile('Temp °C',(tmax!=null?tmax:'—'))+
+  tile('Speed',(s.tele.speed!=null?s.tele.speed:'0')+' rpm')+
+  tile('Limit A',lim.toFixed(1));
+ draw('cmot','applied',{min:-1000,max:1000,zero:true,color:'#3fb950'});
+ draw('cload','amps',{min:0,max:Math.max(lim*1.3,6),limit:lim,color:'#d29922'});
+ drawAdv();
+})}
+function exportPng(){
+ var pad=10,cs=[$('cmot'),$('cload'),$('cadv')],W=0,H=pad;
+ cs.forEach(function(c){W=Math.max(W,c.width);H+=c.height+pad});
+ var out=document.createElement('canvas');out.width=W+pad*2;out.height=H;
+ var x=out.getContext('2d');x.fillStyle='#0d1117';x.fillRect(0,0,out.width,out.height);
+ var y=pad;cs.forEach(function(c){x.drawImage(c,pad,y);y+=c.height+pad});
+ var a=document.createElement('a');a.download='roto-graphs.png';a.href=out.toDataURL('image/png');a.click();
+}
+$('png').onclick=exportPng;
+window.addEventListener('resize',poll);
+setInterval(poll,150);poll();
+</script></body></html>

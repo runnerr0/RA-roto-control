@@ -81,7 +81,8 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=row style="margin-top:10px"><button class=zero id=rtrip title="Clear the trip/fault so you can ARM again — fix the cause first.">RESET TRIP</button></div>
 </div>
 
-<div class=card><b>Motion &amp; load <span class=q title="Open-loop: commanded motion is the speed proxy; current is the load/effort.">?</span></b>
+<div class=card><div class="row spread"><b>Motion &amp; load <span class=q title="Open-loop: commanded motion is the speed proxy; current is the load/effort.">?</span></b>
+  <button class=barbtn id=popgraph title="Open the live graphs in a separate window — drag it to a second screen to monitor while you drive.">⧉ Pop out</button></div>
  <canvas id=cmot></canvas>
  <div class=cap2>Commanded motion — <i>+ forward</i> / <u>− reverse</u>, center = stop. This is what you're telling the motor to do.</div>
  <canvas id=cload></canvas>
@@ -335,6 +336,7 @@ $('dApply').onclick=()=>api('/api/drift?a='+$('dA_spd').value+'&ta='+$('dA_t').v
 
 // ---- top bar: guide + help mode ----
 $('guidebtn').onclick=()=>window.open('/guide','_blank');
+$('popgraph').onclick=()=>window.open('/graphs','roto_graphs','width=900,height=800');
 let helpMode=false;
 function findHelp(el){while(el&&el!==document.body){if(el.getAttribute){const h=el.getAttribute('data-help')||el.getAttribute('title');if(h)return h}el=el.parentNode}return ''}
 $('helptog').onclick=()=>{helpMode=!helpMode;$('helptog').className='barbtn'+(helpMode?' on':'');
