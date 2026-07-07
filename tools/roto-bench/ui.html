@@ -217,6 +217,10 @@ const PROF=[
  ['ATRIG','1','Amps-trigger level (0.1 A). Sustained current that arms the stall/overcurrent action. Must be below ALIM.'],
  ['ATGA','1','Amps-trigger action. aa + 16 for Motor 1 — aa: 0 none · 1 safety-stop · 2 e-stop · 3 motor-stop. 17 = safety-stop M1.'],
  ['ATGD','1','Amps-trigger delay (ms). Current must stay above ATRIG this long before the action fires.'],
+ ['MAC','1','Acceleration ramp — ms for power to go 0→100 %. LONGER = gentler start, less current inrush into an inertial load.'],
+ ['MDEC','1','Deceleration ramp — ms for 100→0 %. LONGER = softer stop, less regen voltage spike when a mass is descending.'],
+ ['OVL','','Over-voltage cutoff (0.1 V → 450 = 45.0 V). Controller faults above this. A descending load regenerates and raises bus voltage — a PSU (unlike a battery) can\'t absorb it.'],
+ ['UVL','','Under-voltage cutoff (0.1 V → 200 = 20.0 V). Controller stops below this. Heavy-lift current sags the supply — set low enough to avoid brownout trips, high enough to protect a battery.'],
 ];
 const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioning.',
  cruise:'Set a speed; it holds. Stall-protected. Steady running.',

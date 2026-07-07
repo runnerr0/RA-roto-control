@@ -71,8 +71,9 @@ PORT_GLOBS = ["/dev/cu.usbmodemRTQ*", "/dev/cu.usbmodem*", "/dev/cu.usbserial*",
 # aux ops round-robined one-per-tick: telemetry (?) + profile reads (~)
 AUX = ["?V", "?T", "?FF", "?AI", "?PI", "?AIC",
        "~ALIM 1", "~MXPF 1", "~MXPR 1", "~RWD", "~ATRIG 1", "~ATGA 1", "~ATGD 1",
-       "~AINA 3", "~AINA 4"]
-CONFIG_WHITELIST = {"ALIM", "MXPF", "MXPR", "RWD", "ATRIG", "ATGA", "ATGD", "MAC", "MDEC", "AINA"}
+       "~AINA 3", "~AINA 4", "~MAC 1", "~MDEC 1", "~OVL", "~UVL"]
+CONFIG_WHITELIST = {"ALIM", "MXPF", "MXPR", "RWD", "ATRIG", "ATGA", "ATGD",
+                    "MAC", "MDEC", "OVL", "UVL", "AINA"}
 FAULT_BITS = [(0x01, "OVERHEAT"), (0x02, "OVERVOLT"), (0x04, "UNDERVOLT"),
               (0x08, "SHORT"), (0x10, "ESTOP"), (0x20, "SEPEX-FAULT"),
               (0x40, "MOSFET-FAIL"), (0x80, "STARTUP-CFG")]
