@@ -108,7 +108,7 @@ class State:
         self.backoff_active = False
         self.creep_kick = 150.0          # CREEP anti-stiction breakaway level (command units)
         self.creep_kick_ms = 400         # CREEP kick duration (ms)
-        self.logging = False             # characterization CSV logging on/off
+        self.logging = True              # ALWAYS log to a local CSV by default
         self.log_name = ""
         self.log_rows = 0
         self.log_div = 3                 # log every Nth tick: 3 = ~5 Hz, 1 = ~15 Hz (aggressive)
@@ -612,11 +612,12 @@ class Worker(threading.Thread):
                             avg = (lift_sum / lift_n) if lift_n else (amps if amps is not None else 0.0)
                             tmax = max(temps) if temps else None
                             alim_a = lift_alim / 10.0
-                            if avg >= 0.9 * alim_a:            # it actually pinned at the limit (stalled)
+                            mag = abs(avg)                     # works for either lift direction
+                            if mag >= 0.9 * alim_a:            # it actually pinned at the limit (stalled)
                                 lift_pinned = True
                             # only trust "amps dropped below limit = turning" AFTER it has pinned;
                             # otherwise low amps just mean the command is too weak to reach the limit.
-                            lifted = lift_pinned and avg < 0.85 * alim_a
+                            lifted = lift_pinned and mag < 0.85 * alim_a
                             lift_results.append({"alim": round(alim_a, 1), "amps": round(avg, 2),
                                                  "temp": tmax, "lifted": lifted, "pinned": lift_pinned})
                             with self.state.lock:
@@ -624,7 +625,7 @@ class Worker(threading.Thread):
                             self.state.push_event("LIFT rung: ALIM %.1f A -> %.1f A%s"
                                                   % (alim_a, avg, " PINNED" if lift_pinned else ""))
                             if lifted:
-                                lift_end = ("LIFTED at %.1f A — load draws %.1f A" % (alim_a, avg), True, avg)
+                                lift_end = ("LIFTED at %.1f A — load draws %.1f A" % (alim_a, mag), True, mag)
                             elif tmax is not None and tmax >= lift_temp_limit:
                                 lift_end = ("stopped: %d C >= %.0f C limit" % (tmax, lift_temp_limit), False, None)
                             elif lift_alim + lift_alim_step > lift_alim_max:
@@ -858,11 +859,12 @@ class Handler(BaseHTTPRequestHandler):
         with st.lock:
             st.last_contact = time.monotonic()
 
-        if u.path == "/":
+        if u.path in ("/", "/guide"):
+            fn = UI_FILE if u.path == "/" else (Path(__file__).parent / "guide.html")
             try:
-                body = UI_FILE.read_bytes()
+                body = fn.read_bytes()
             except OSError:
-                body = b"<h1>ui.html not found next to roto_bench.py</h1>"
+                body = b"<h1>" + fn.name.encode() + b" not found next to roto_bench.py</h1>"
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
