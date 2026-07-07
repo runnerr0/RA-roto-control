@@ -92,7 +92,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=sub style="margin-top:6px">Fix the cause, then press <b>Reset Trip</b> in the top bar to ARM again.</div>
 </div>
 
-<div class=card><div class="row spread"><b>Motion &amp; load <span class=q title="Open-loop: commanded motion is the speed proxy; current is the load/effort.">?</span></b>
+<div class=card><div class="row spread"><b title="Open-loop: commanded motion is the speed proxy; current is the load/effort.">Motion &amp; load</b>
   <button class=barbtn id=popgraph title="Open the live graphs in a separate window — drag it to a second screen to monitor while you drive.">⧉ Pop out</button></div>
  <canvas id=cmot></canvas>
  <div class=cap2>Commanded motion — <i>+ forward</i> / <u>− reverse</u>, center = stop. This is what you're telling the motor to do.</div>
@@ -130,7 +130,6 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=row id=speedbox style="margin-top:10px;display:none">
   <span>Speed <input id=num class=num type=number min=-100 max=100 value=0 step=5 title="Type an exact speed as % and apply (CRUISE/HOLD/CREEP).">%</span>
   <button id=set class=zero title="Apply the exact speed typed at left (CRUISE / HOLD / CREEP).">Go</button>
-  <span class=q title="Type an exact speed and apply — used in CRUISE / HOLD / CREEP.">?</span>
  </div>
 
  <div id=driftbox style="display:none;margin-top:10px">
@@ -172,23 +171,23 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 
  <div class=card><b>Trips &amp; protection</b>
   <div class="row">
-   <span class=sub>Stall trip: <span class=q title="RUN modes only. If current holds near the limit this long, it's a jam -> stop.">?</span></span>
+   <span class=sub title="RUN modes only. If current holds near the limit this long, it's a jam -> stop.">Stall trip:</span>
    <input id=tamps class=num type=number min=0.1 step=0.1 value=4.5> A for
    <input id=tms class=num type=number min=50 step=50 value=800> ms <button id=tset class=clr>Apply</button>
   </div>
   <div class="row" style="margin-top:10px">
-   <span class=sub>Protect: <span class=q title="Always on, incl. HOLD. Temp is the real damage signal; I2t catches sustained heavy current.">?</span></span>
+   <span class=sub title="Always on, incl. HOLD. Temp is the real damage signal; I2t catches sustained heavy current.">Protect:</span>
    temp <input id=ttemp class=num type=number min=0 step=1 value=70> °C · I²t <input id=theat class=num type=number min=0 step=50 value=600> A²s <button id=pset class=clr>Apply</button>
   </div>
   <div class="row" style="margin-top:10px">
-   <span class=sub>Current governor <span class=q title="DEFAULT ON. Closed loop on motor current: feathers the command DOWN to hold amps just under a fraction of the current limit — so the motor rides the ceiling smoothly instead of slamming into the hard limit / stall trip and breaking free. Turn off to let the command reach the full limit. Suppressed during the lift test / sweep.">?</span></span>
+   <span class=sub title="DEFAULT ON. Closed loop on motor current: feathers the command DOWN to hold amps just under a fraction of the current limit — so the motor rides the ceiling smoothly instead of slamming into the hard limit / stall trip and breaking free. Turn off to let the command reach the full limit. Suppressed during the lift test / sweep.">Current governor</span>
    <label class=sub><input type=checkbox id=govon checked> on</label>
    · hold at <input id=govfrac class=num type=number min=30 max=100 step=5 value=85> % of the current limit
    <button id=govset class=clr>Apply</button>
   </div>
  </div>
 
- <div class=card><b>Advanced graph <span class=q title="Overlay any controller telemetry over time. Each trace auto-scales to fit; live values are in the legend. Click a legend chip to toggle it.">?</span></b>
+ <div class=card><b title="Overlay any controller telemetry over time. Each trace auto-scales to fit; live values are in the legend. Click a legend chip to toggle it.">Advanced graph</b>
   <div id=aglegend class=cap2 style="margin:0 0 6px"></div>
   <canvas id=cadv></canvas>
   <div class=cap2>Traces auto-scaled to fill · click a legend chip to show/hide · values are live.</div>
@@ -219,7 +218,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <div class=sub id=logstat style="margin-top:6px">Full telemetry (command · amps · supply A · power · volts · temp · at-limit · governor) + every config change &amp; test event → CSV in <code>tools/roto-bench/logs/</code>.</div>
  </div>
 
- <div class=card id=sweepcard><b>Characterization sweep <span class=q title="Steps the command up in increments, waits, and records the settled amps at each level — maps command→load for THIS motor. It MOVES THE MOTOR; requires ARM. Auto-enables logging.">?</span></b>
+ <div class=card id=sweepcard><b title="Steps the command up in increments, waits, and records the settled amps at each level — maps command→load for THIS motor. It MOVES THE MOTOR; requires ARM. Auto-enables logging.">Characterization sweep</b>
   <div class=row style="margin-top:6px">
    <span class=sub>step</span> <input id=swstep class=num type=number min=1 max=100 value=3 title="Command increment per step (%).">%
    <span class=sub>· dwell</span> <input id=swdwell class=num type=number min=0.2 step=0.1 value=1.5 title="Seconds per step: first ~40% settles, remainder is averaged."> <span class=sub>s</span>
@@ -244,7 +243,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <div class=sub id=swbase style="margin-top:8px">Baseline: —</div>
  </div>
 
- <div class=card id=liftcard style="border-color:#8957e5"><b>⬆ Guided lift test <span class=q title="Holds a slow command and raises the current limit (ALIM) rung by rung until the loaded roto breaks free, then reports the current the load draws. RAISES ALIM and MOVES THE MOTOR; requires ARM. Auto-restores the safe limit on any abort / trip / over-temp.">?</span></b>
+ <div class=card id=liftcard style="border-color:#8957e5"><b title="Holds a slow command and raises the current limit (ALIM) rung by rung until the loaded roto breaks free, then reports the current the load draws. RAISES ALIM and MOVES THE MOTOR; requires ARM. Auto-restores the safe limit on any abort / trip / over-temp.">⬆ Guided lift test</b>
   <div class=cap2 style="color:#d29922">⚠ Raises the controller current limit under load — be on the real supply, fuse &amp; wire for the current, E-STOP reachable.</div>
   <div class=row style="margin-top:6px">
    <span class=sub>ALIM start</span> <input id=lfstart class=num type=number min=1 step=0.5 value=5 title="Starting current limit (A).">
