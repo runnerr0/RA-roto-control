@@ -14,6 +14,13 @@ button{font:600 15px system-ui;border:0;border-radius:8px;padding:12px 16px;curs
 .modebtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;flex:1;min-width:70px;padding:12px 6px;font-size:14px}
 .modebtn.on{background:#8957e5;border-color:#8957e5;color:#fff}
 input[type=range]{width:100%;height:38px}input[type=range]:disabled{opacity:.35}
+.slwrap{position:relative;margin-top:6px}
+.slwrap .slmid{position:absolute;left:50%;top:50%;width:2px;height:22px;margin-top:-11px;background:#6e7681;transform:translateX(-1px);pointer-events:none;border-radius:1px}
+.slwrap .sllbl{display:flex;justify-content:space-between;font-size:11px;color:#8b949e;margin-top:3px}
+input[type=range].birange{-webkit-appearance:none;appearance:none;width:100%;height:24px;border-radius:12px;background:#30363d;outline:none;margin:0}
+input[type=range].birange::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#e6edf3;border:3px solid #1f6feb;cursor:pointer;box-shadow:0 1px 4px #000a}
+input[type=range].birange::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:#e6edf3;border:3px solid #1f6feb;cursor:pointer}
+input[type=range].birange:disabled{opacity:.4}
 .num,.cap{width:80px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:8px}
 .val{font:700 42px ui-monospace,monospace;text-align:center;margin:4px 0}
 .desc{font-size:12px;color:#8b949e;text-align:center;margin:2px 0 8px}
@@ -111,7 +118,11 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div id=gate></div>
  <div id=botag style="color:#d29922;text-align:center;font-size:13px;font-weight:700;min-height:16px"></div>
 
- <input id=sl type=range min=-100 max=100 value=0 step=1 title="Speed slider — drag for speed and direction as % (center = stop). In JOG, release to stop.">
+ <div class=slwrap>
+  <input id=sl class=birange type=range min=-100 max=100 value=0 step=1 title="Speed slider — center = stop; drag right = forward, left = reverse (%). In JOG, release to stop.">
+  <span class=slmid></span>
+  <div class=sllbl><span>◀ reverse</span><span>stop</span><span>forward ▶</span></div>
+ </div>
 
  <div class=row id=speedbox style="margin-top:10px;display:none">
   <span>Speed <input id=num class=num type=number min=-100 max=100 value=0 step=5 title="Type an exact speed as % and apply (CRUISE/HOLD/CREEP).">%</span>
@@ -313,7 +324,10 @@ function paintMode(){
 MODELIST.forEach(m=>$('m_'+m).onclick=()=>setMode(m));
 
 // ---- command ----
-$('sl').addEventListener('input',e=>{if(blocked())flashBlk();setCmd(+e.target.value)});
+function paintSlider(){var s=$('sl'),v=+s.value,pos=50+v/2,lo=Math.min(50,pos),hi=Math.max(50,pos);
+ var col=(v>0)?'#238636':(v<0?'#b0740a':'#30363d');   // green fwd / amber rev / grey stop
+ s.style.background='linear-gradient(to right,#30363d '+lo+'%,'+col+' '+lo+'%,'+col+' '+hi+'%,#30363d '+hi+'%)';}
+$('sl').addEventListener('input',e=>{if(blocked())flashBlk();setCmd(+e.target.value);paintSlider()});
 function release(){if(rmode==='jog'){$('sl').value=0;setCmd(0)}}
 document.addEventListener('mouseup',release);document.addEventListener('touchend',release);
 function setCmd(p){$('cmd').textContent=p+'%';api('/api/set?g='+toRaw(p))}   // p is percent
@@ -490,6 +504,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('bar_cmd').textContent=toPct(s.applied)+'%';
  const a=$('arm');a.textContent=s.armed?'ARMED':'DISARMED';a.className='arm'+(s.armed?'':' off');
  $('cmd').textContent=toPct(s.applied)+'%'; // big readout = live applied command, as %
+ paintSlider();                            // keep the center-out fill in sync with the slider
  $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
  $('clr').style.display=s.estop?'':'none';$('rtrip').style.display=s.tripped?'':'none';   // recovery buttons appear only when relevant
  $('botag').textContent=s.gov_active?('⚖ GOVERNING — command held to '+Math.round((s.gov_scale!=null?s.gov_scale:1)*100)+'% to ride just under the current limit'):'';
@@ -561,5 +576,5 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('diag').innerHTML='<tr><th>In</th><th>Source</th><th>Analog mV</th><th>Pulse</th><th>Conv cmd</th></tr>'+
   SRC.map((r,i)=>{const live=(ai[i]!=null&&ai[i]>60),c=live?'live':'dead';return `<tr><td>${r[0]}</td><td class=${c}>${r[1]}</td><td class=${c}>${D(ai[i])}</td><td>${D(pi[i])}</td><td>${D(ac[i])}</td></tr>`}).join('');
 })}
-paintMode();loadPresetList();fitBar();setInterval(poll,150);poll();
+paintMode();loadPresetList();fitBar();paintSlider();setInterval(poll,150);poll();
 </script></body></html>
