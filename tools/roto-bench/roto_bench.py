@@ -69,7 +69,7 @@ PRESET_DIR = Path(__file__).parent / "presets"
 PORT_GLOBS = ["/dev/cu.usbmodemRTQ*", "/dev/cu.usbmodem*", "/dev/cu.usbserial*",
               "/dev/ttyACM*", "/dev/ttyUSB*"]
 # aux ops round-robined one-per-tick: telemetry (?) + profile reads (~)
-AUX = ["?V", "?T", "?FF", "?AI", "?PI", "?AIC",
+AUX = ["?V", "?T", "?FF", "?BA", "?P", "?M", "?S", "?FS", "?AI", "?PI", "?AIC",
        "~ALIM 1", "~MXPF 1", "~MXPR 1", "~RWD", "~ATRIG 1", "~ATGA 1", "~ATGD 1",
        "~AINA 3", "~AINA 4", "~MAC 1", "~MDEC 1", "~OVL", "~UVL"]
 CONFIG_WHITELIST = {"ALIM", "MXPF", "MXPR", "RWD", "ATRIG", "ATGA", "ATGD",
@@ -77,6 +77,8 @@ CONFIG_WHITELIST = {"ALIM", "MXPF", "MXPR", "RWD", "ATRIG", "ATGA", "ATGD",
 FAULT_BITS = [(0x01, "OVERHEAT"), (0x02, "OVERVOLT"), (0x04, "UNDERVOLT"),
               (0x08, "SHORT"), (0x10, "ESTOP"), (0x20, "SEPEX-FAULT"),
               (0x40, "MOSFET-FAIL"), (0x80, "STARTUP-CFG")]
+FS_BITS = [(0x01, "serial"), (0x02, "pulse"), (0x04, "analog"), (0x08, "pwr-off"),
+           (0x10, "STALL"), (0x20, "AT-LIMIT"), (0x80, "script")]
 
 
 class State:
@@ -276,6 +278,27 @@ def decode(query, value, tele):
         tele["pin"] = ints()
     elif query == "?AIC":
         tele["aic"] = ints()
+    elif query == "?BA":                 # supply/battery amps, x10, signed (regen = negative)
+        a = ints()
+        if a and a[0] is not None:
+            tele["batt_amps"] = a[0] / 10.0
+    elif query == "?P":                  # applied motor power/PWM, -1000..1000
+        p = ints()
+        if p and p[0] is not None:
+            tele["power"] = p[0]
+    elif query == "?M":                  # motor command the controller is acting on, -1000..1000
+        m = ints()
+        if m and m[0] is not None:
+            tele["mcmd"] = m[0]
+    elif query == "?S":                  # encoder speed RPM (real once an encoder is fitted)
+        s = ints()
+        if s and s[0] is not None:
+            tele["speed"] = s[0]
+    elif query == "?FS":                 # status flags (serial/analog mode, stall, AT-LIMIT...)
+        f = ints()
+        if f and f[0] is not None:
+            tele["status"] = [n for bit, n in FS_BITS if f[0] & bit]
+            tele["at_limit"] = bool(f[0] & 0x20)
 
 
 class Worker(threading.Thread):

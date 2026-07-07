@@ -112,6 +112,12 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=cap2><b>Motor current</b> (effort/load) · red dashed = current limit. Rising current at steady command = increasing load.</div>
 </div>
 
+<div class=card><b>Advanced graph <span class=q title="Overlay any controller telemetry over time. Each trace auto-scales to fit; live values are in the legend. Click a legend chip to toggle it.">?</span></b>
+ <div id=aglegend class=cap2 style="margin:0 0 6px"></div>
+ <canvas id=cadv></canvas>
+ <div class=cap2>Traces auto-scaled to fill · click a legend chip to show/hide · values are live.</div>
+</div>
+
 <div class=card><b>Live numbers</b>
  <div class=grid>
   <div class=stat title="Motor amps x battery volts."><div class=k>Power</div><div class=v id=h_pw>—</div></div>
@@ -300,6 +306,21 @@ function drawMotion(){const c=$('cmot'),x=c.getContext('2d'),W=c.width=c.clientW
  if(HIST.length<2)return;const dx=W/(MAXH-1);
  x.strokeStyle='#3fb950';x.lineWidth=2;x.beginPath();
  HIST.forEach((p,i)=>{const y=H/2-(p.ap/1000)*(H/2);i?x.lineTo(i*dx,y):x.moveTo(i*dx,y)});x.stroke();x.lineWidth=1}
+// ---- advanced multi-trace graph ----
+const AGSER=[['a','Motor A','#58a6ff',t=>t.amps_m1],['ba','Supply A','#3fb950',t=>t.batt_amps],
+ ['p','Power %','#d29922',t=>t.power!=null?t.power/10:null],['v','Batt V','#a371f7',t=>t.volts_batt],
+ ['tp','Temp °C','#f85149',t=>(t.temp&&t.temp.length)?Math.max.apply(null,t.temp):null],['s','Speed','#ff9bce',t=>t.speed]];
+let agOn={a:1,ba:1,p:1,v:0,tp:0,s:0};
+function agTog(k){agOn[k]=agOn[k]?0:1}
+function agLegend(t){$('aglegend').innerHTML=AGSER.map(sr=>{const v=sr[3](t),vs=(v==null)?'—':(Math.round(v*10)/10);
+ return `<span onclick="agTog('${sr[0]}')" style="cursor:pointer;margin-right:12px;opacity:${agOn[sr[0]]?1:0.4}"><span style="color:${sr[2]}">■</span> ${sr[1]}: <b>${vs}</b></span>`}).join('')}
+function drawAdv(){const c=$('cadv'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height;x.clearRect(0,0,W,H);
+ if(HIST.length<2)return;const dx=W/(MAXH-1);
+ AGSER.forEach(sr=>{if(!agOn[sr[0]])return;const nums=[];HIST.forEach(h=>{const v=h[sr[0]];if(v!=null&&!isNaN(v))nums.push(v)});
+  if(nums.length<2)return;let mn=Math.min.apply(null,nums),mx=Math.max.apply(null,nums);if(mx-mn<1e-6){mx=mn+1;mn=mn-1}
+  x.strokeStyle=sr[2];x.lineWidth=1.5;x.beginPath();let started=false;
+  HIST.forEach((h,i)=>{const v=h[sr[0]];if(v==null||isNaN(v)){started=false;return}const y=H*0.04+(H*0.92)*(1-(v-mn)/(mx-mn));started?x.lineTo(i*dx,y):x.moveTo(i*dx,y);started=true});
+  x.stroke()});x.lineWidth=1}
 function drawSweep(res,breakaway){const c=$('cswp'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height,PADL=34,PADB=18;x.clearRect(0,0,W,H);
  x.strokeStyle='#30363d';x.beginPath();x.moveTo(PADL,H-PADB);x.lineTo(W,H-PADB);x.moveTo(PADL,4);x.lineTo(PADL,H-PADB);x.stroke();
  x.fillStyle='#8b949e';x.font='11px monospace';x.fillText('amps',6,12);x.fillText('cmd',W-28,H-4);
@@ -368,7 +389,8 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  if(s.log_name)$('logstat').innerHTML=(s.logging?'● Recording':'■ Stopped')+' → <code>logs/'+s.log_name+'</code> · '+(s.log_rows||0)+' rows';
  // history + heuristics
  const amps=(t.amps_m1!=null)?t.amps_m1:0,v=(t.volts_batt!=null)?t.volts_batt:0;
- HIST.push({a:amps,ap:s.applied});while(HIST.length>MAXH)HIST.shift();
+ const he={a:amps,ap:s.applied};AGSER.forEach(sr=>{if(sr[0]!=='a')he[sr[0]]=sr[3](t)});
+ HIST.push(he);while(HIST.length>MAXH)HIST.shift();
  if(s.armed&&s.applied!=0){if(!runStart)runStart=performance.now()}else runStart=0;
  if(amps>peak)peak=amps;if(v>nomV)nomV=v;
  const avg=HIST.reduce((m,p)=>m+p.a,0)/HIST.length;
@@ -379,7 +401,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  const tp=(t.temp&&t.temp.length)?Math.max(...t.temp):null;$('h_tp').textContent=(tp!=null)?tp+'°C':'—';
  $('h_rt').textContent=runStart?fmtDur(performance.now()-runStart):'idle';
  $('h_ht').textContent=(s.heat_budget>0)?Math.round(100*s.heat_now/s.heat_budget)+'%':'off';
- drawMotion();drawLoad();deriveAlerts(s,t);
+ drawMotion();drawLoad();drawAdv();agLegend(t);deriveAlerts(s,t);
  // sweep
  $('swstat').textContent=D(s.sweep_status,'idle')+(s.sweep_active?(' · '+Math.round((s.sweep_progress||0)*100)+'%'):'');
  $('swrun').disabled=!!s.sweep_active;
@@ -403,9 +425,17 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('cfglog').textContent=(s.config_log||[]).map(c=>`${c.t} ${c.key}=${c.val} ${c.ok?'✓':'✗('+(c.readback||'?')+')'}`).join('\n');
  // health
  const f=(t.faults&&t.faults.length)?t.faults.join(' '):'none';
- $('tele').innerHTML=[['Applied cmd',s.applied+' / 1000'],['Motor amps',(t.amps_m1!=null?t.amps_m1.toFixed(1)+' A':'—')],
+ const atlim=t.at_limit?' <span class=faults>AT-LIMIT</span>':'';
+ $('tele').innerHTML=[['Applied cmd',s.applied+' / 1000'],
+  ['Motor amps',(t.amps_m1!=null?t.amps_m1.toFixed(1)+' A':'—')+atlim],
+  ['Supply amps',(t.batt_amps!=null?t.batt_amps.toFixed(1)+' A'+(t.batt_amps<-0.2?' <span style="color:#3fb950">(regen)</span>':''):'—')],
+  ['Power out',(t.power!=null?(t.power/10).toFixed(0)+' %':'—')],
+  ['Ctrl command',(t.mcmd!=null?t.mcmd+' / 1000':'—')],
+  ['Speed',(t.speed!=null?t.speed+' RPM'+(t.speed==0?' <span class=sub>(needs encoder)</span>':''):'—')],
   ['Battery',(t.volts_batt!=null?t.volts_batt.toFixed(1)+' V':'—')],['5V out',(t.volts_5v!=null?t.volts_5v.toFixed(2)+' V':'—')],
-  ['Temp °C',(t.temp?t.temp.join(' / '):'—')],['Faults','<span class=faults>'+f+'</span>']].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+  ['Temp °C',(t.temp?t.temp.join(' / '):'—')],
+  ['Status',(t.status&&t.status.length?t.status.join(' '):'—')],
+  ['Faults','<span class=faults>'+f+'</span>']].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
  // diagnostics
  const ai=t.ain||[],pi=t.pin||[],ac=t.aic||[];
  $('diag').innerHTML='<tr><th>In</th><th>Source</th><th>Analog mV</th><th>Pulse</th><th>Conv cmd</th></tr>'+
