@@ -111,6 +111,7 @@ class State:
         self.logging = False             # characterization CSV logging on/off
         self.log_name = ""
         self.log_rows = 0
+        self.log_div = 3                 # log every Nth tick: 3 = ~5 Hz, 1 = ~15 Hz (aggressive)
         self.events = []                 # event lines to drop into the log (tests, config changes)
         self.tripped = False
         self.trip_reason = ""
@@ -173,6 +174,7 @@ class State:
                 "backoff_ms": self.backoff_ms, "backoff_scale": round(self.backoff_scale, 3),
                 "backoff_active": self.backoff_active,
                 "logging": self.logging, "log_name": self.log_name, "log_rows": self.log_rows,
+                "log_div": self.log_div,
                 "tripped": self.tripped, "trip_reason": self.trip_reason,
                 "trip_amps": self.trip_amps, "trip_ms": self.trip_ms,
                 "temp_trip": self.temp_trip, "heat_budget": self.heat_budget,
@@ -377,7 +379,8 @@ class Worker(threading.Thread):
         d.mkdir(exist_ok=True)
         name = "roto-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
         f = open(d / name, "w")
-        f.write("time,elapsed_s,mode,target,applied,amps,volts,temp,heat,tripped,trip_reason,event\n")
+        f.write("time,elapsed_s,mode,target,applied,amps,supply_a,power,ctrl_cmd,speed,volts,"
+                "temp,at_limit,heat,backoff,tripped,trip_reason,event\n")
         with self.state.lock:
             self.state.log_name = name
             self.state.log_rows = 0
@@ -764,23 +767,31 @@ class Worker(threading.Thread):
                 if logf is not None:
                     log_tick += 1
                     with self.state.lock:
-                        v = self.state.tele.get("volts_batt")
-                        tl = self.state.tele.get("temp") or []
+                        te = self.state.tele
+                        v = te.get("volts_batt"); ba = te.get("batt_amps")
+                        pw = te.get("power"); mc = te.get("mcmd"); sp = te.get("speed")
+                        tl = te.get("temp") or []
                         reason = self.state.trip_reason
+                        div = self.state.log_div
                         evs = self.state.events
                         self.state.events = []
                     base = [time.strftime("%H:%M:%S"), "%.2f" % (now - log_t0), run_mode,
                             int(round(target)), int(round(applied)),
                             ("%.1f" % amps) if amps is not None else "",
+                            ("%.1f" % ba) if ba is not None else "",
+                            (pw if pw is not None else ""),
+                            (mc if mc is not None else ""),
+                            (sp if sp is not None else ""),
                             ("%.1f" % v) if v is not None else "",
-                            (max(tl) if tl else ""), "%.0f" % heat_now,
+                            (max(tl) if tl else ""),
+                            1 if at_limit else 0, "%.0f" % heat_now, "%.2f" % backoff_scale,
                             1 if tripped else 0, reason.replace(",", ";")]
                     prefix = ",".join(str(c) for c in base)
                     n = 0
                     for e in evs:                        # event rows: telemetry context + the event
                         logf.write(prefix + "," + str(e).replace(",", ";") + "\n")
                         n += 1
-                    if log_tick % 3 == 0:                # periodic telemetry row (~5 Hz)
+                    if log_tick % max(1, div) == 0:      # periodic telemetry row (div=3 -> ~5 Hz)
                         logf.write(prefix + ",\n")
                         n += 1
                     if n:
@@ -880,7 +891,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
         elif u.path == "/api/log":
             with st.lock:
-                st.logging = q.get("on", ["0"])[0] == "1"
+                if "div" in q:
+                    st.log_div = int(clamp(self._num(q, "div", st.log_div), 1, 30))
+                st.logging = q.get("on", ["1" if st.logging else "0"])[0] == "1"
             self._json({"ok": True})
         elif u.path == "/api/osc":
             with st.lock:
