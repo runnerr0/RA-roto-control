@@ -167,10 +167,10 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
    temp <input id=ttemp class=num type=number min=0 step=1 value=70> °C · I²t <input id=theat class=num type=number min=0 step=50 value=600> A²s <button id=pset class=clr>Apply</button>
   </div>
   <div class="row" style="margin-top:10px">
-   <span class=sub>Overtorque backoff: <span class=q title="When amps sit at/above this level, the command is gently ramped DOWN to relieve torque — so a jam can't wind up and break free violently. Recovers when relieved. Suppressed during the lift test.">?</span></span>
-   <label class=sub><input type=checkbox id=boon checked> on</label>
-   at <input id=boamps class=num type=number min=0 step=0.5 value=4> A for <input id=boms class=num type=number min=50 step=50 value=400> ms
-   <button id=boset class=clr>Apply</button>
+   <span class=sub>Current governor <span class=q title="DEFAULT ON. Closed loop on motor current: feathers the command DOWN to hold amps just under a fraction of the current limit — so the motor rides the ceiling smoothly instead of slamming into the hard limit / stall trip and breaking free. Turn off to let the command reach the full limit. Suppressed during the lift test / sweep.">?</span></span>
+   <label class=sub><input type=checkbox id=govon checked> on</label>
+   · hold at <input id=govfrac class=num type=number min=30 max=100 step=5 value=85> % of the current limit
+   <button id=govset class=clr>Apply</button>
   </div>
  </div>
 
@@ -202,7 +202,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
    <span><span class=sub>rate</span> <select id=lograte class=cap title="Sampling rate. Aggressive (15 Hz) for fine tuning; motor amps update every tick, slower telemetry at its own rate."><option value=3>5 Hz</option><option value=1>15 Hz (aggressive)</option></select>
    <button id=logbtn class=zero>● Start logging</button>
    <button id=logcopy class=clr title="Copy the log file name, row count, logging state, and recent alert lines to the clipboard.">Copy</button></span></div>
-  <div class=sub id=logstat style="margin-top:6px">Full telemetry (command · amps · supply A · power · volts · temp · at-limit · backoff) + every config change &amp; test event → CSV in <code>tools/roto-bench/logs/</code>.</div>
+  <div class=sub id=logstat style="margin-top:6px">Full telemetry (command · amps · supply A · power · volts · temp · at-limit · governor) + every config change &amp; test event → CSV in <code>tools/roto-bench/logs/</code>.</div>
  </div>
 
  <div class=card id=sweepcard><b>Characterization sweep <span class=q title="Steps the command up in increments, waits, and records the settled amps at each level — maps command→load for THIS motor. It MOVES THE MOTOR; requires ARM. Auto-enables logging.">?</span></b>
@@ -289,7 +289,7 @@ const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioni
  creep:'Very slow under load. Stall-trip OFF (slow+load looks like a stall) — temp/I²t protect. Anti-stiction kick on start.'};
 const MODELIST=['jog','cruise','drift','hold','creep'];
 const HIST=[],MAXH=400;
-let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={},S=null,driftSynced=false;
+let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={},S=null,driftSynced=false,govSynced=false;
 const TH={hot:60,critHot:80,ampWarn:0.8,vLow:18,vHigh:52};
 function api(p){return new Promise(function(res){try{var x=new XMLHttpRequest();x.open('GET',p);x.onreadystatechange=function(){if(x.readyState===4){try{res(JSON.parse(x.responseText))}catch(e){res(null)}}};x.onerror=function(){res(null)};x.send()}catch(e){res(null)}})}
 function blocked(){return S&&(!S.armed||S.estop||S.tripped)}
@@ -323,7 +323,7 @@ $('clr').onclick=()=>api('/api/clear');
 $('cap').onchange=e=>api('/api/cap?v='+e.target.value);
 $('tset').onclick=()=>api('/api/trip?amps='+$('tamps').value+'&ms='+$('tms').value);
 $('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('theat').value);
-$('boset').onclick=()=>api('/api/backoff?on='+($('boon').checked?1:0)+'&amps='+$('boamps').value+'&ms='+$('boms').value);
+$('govset').onclick=()=>api('/api/governor?on='+($('govon').checked?1:0)+'&frac='+($('govfrac').value/100));
 $('rtrip').onclick=()=>api('/api/resettrip');
 $('flash').onclick=()=>api('/api/config_flash');
 $('reapply').onclick=()=>api('/api/reapply');
@@ -444,7 +444,7 @@ function raise(k,sev,msg){active[k]={sev,msg}}
 function deriveAlerts(s,t){active={};
  if(!s.connected)raise('conn','crit','NO SERIAL — controller link lost');
  if(s.estop)raise('estop','crit','E-STOP latched');
- if(s.backoff_active)raise('backoff','warn','Overtorque backoff — command relieved to '+Math.round((s.backoff_scale!=null?s.backoff_scale:1)*100)+'%');
+ if(s.gov_active)raise('gov','warn','Current governor holding command to '+Math.round((s.gov_scale!=null?s.gov_scale:1)*100)+'% to stay under the limit');
  if(s.tripped)raise('trip','crit','TRIP — '+(s.trip_reason||'stall'));
  if(s.mode==='momentary'&&s.deadman&&s.armed)raise('dead','warn','Deadman — no control contact, forcing 0');
  (t.faults||[]).forEach(f=>raise('flt_'+f,'crit','Controller fault: '+f));
@@ -490,7 +490,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  if(s.run_mode==='drift')$('cmd').textContent=s.applied; // reflect drift
  $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
  $('clr').style.display=s.estop?'':'none';$('rtrip').style.display=s.tripped?'':'none';   // recovery buttons appear only when relevant
- $('botag').textContent=s.backoff_active?('⤵ OVERTORQUE — command relieved to '+Math.round((s.backoff_scale!=null?s.backoff_scale:1)*100)+'% to avoid breaking free'):'';
+ $('botag').textContent=s.gov_active?('⚖ GOVERNING — command held to '+Math.round((s.gov_scale!=null?s.gov_scale:1)*100)+'% to ride just under the current limit'):'';
  hint(s);
  let g='';
  if(s.estop)g='E-STOP';else if(s.tripped)g='TRIPPED';else if(!s.armed)g='DISARMED';
@@ -503,6 +503,8 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
   $('dA_spd').value=s.drift_a;$('dA_spdv').textContent=Math.round(s.drift_a);
   $('dB_spd').value=s.drift_b;$('dB_spdv').textContent=Math.round(s.drift_b);
   $('dA_t').value=s.drift_ta;$('dB_t').value=s.drift_tb;$('dRamp').value=s.drift_ramp;}
+ if(!govSynced&&s.gov_on!=null){govSynced=true;                 // reflect governor state in the toggle
+  $('govon').checked=!!s.gov_on;if(s.gov_frac!=null)$('govfrac').value=Math.round(s.gov_frac*100);}
  // history + heuristics
  const amps=(t.amps_m1!=null)?t.amps_m1:0,v=(t.volts_batt!=null)?t.volts_batt:0;
  const he={a:amps,ap:s.applied};AGSER.forEach(sr=>{if(sr[0]!=='a')he[sr[0]]=sr[3](t)});
