@@ -52,7 +52,13 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 .topbar{position:fixed;top:0;left:0;right:0;z-index:100;background:#0d1117;border-bottom:1px solid #30363d;padding:9px 18px;box-shadow:0 2px 8px #0008}
 .topbar-main{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .topbar .estop{margin-left:auto;flex:0 0 auto;font-size:17px;font-weight:800;padding:10px 22px}
-.topbar .arm,.topbar .clr{font-size:13px;padding:8px 12px}
+.topbar .clr{font-size:13px;padding:8px 12px}
+.armsw{display:inline-flex;align-items:center;gap:8px;border:1px solid #30363d;background:#161b22;cursor:pointer;padding:5px 10px 5px 6px;border-radius:20px;font:700 12px system-ui;color:#8b949e}
+.armsw .trk{width:40px;height:22px;border-radius:11px;background:#30363d;position:relative;flex:0 0 auto;transition:background .15s}
+.armsw .knob{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#8b949e;transition:left .15s,background .15s}
+.armsw.on{color:#3fb950;border-color:#238636}
+.armsw.on .trk{background:#238636}
+.armsw.on .knob{left:21px;background:#fff}
 .barlive{font:600 13px ui-monospace,monospace;color:#c9d1d9;white-space:nowrap}
 .barlive b{color:#58a6ff}
 .barbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:8px 12px;font-size:13px}
@@ -74,7 +80,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=topbar-main>
   <span id=st2 class="pill warn" title="Live console status: serial link, arm/e-stop/trip state, and whether the motor is running.">…</span>
   <span class=barlive title="Live motor current and the command currently applied to the motor."><span id=bar_amps>—</span> · cmd <b id=bar_cmd>0</b></span>
-  <button id=arm class="arm off" title="Enable motion. Nothing moves until ARMED.">DISARMED</button>
+  <button id=arm class=armsw title="Motion enable toggle. Flip ON to arm (allow motion); flip OFF to disarm. Nothing moves until armed."><span class=trk><span class=knob></span></span><span id=armlbl>DISARMED</span></button>
   <button id=clr class=clr title="Clear the E-Stop latch so you can ARM again." style="display:none">Clear E-Stop</button>
   <button id=rtrip class=clr title="Clear the trip/fault so you can ARM again — fix the cause first." style="display:none">Reset Trip</button>
   <button class=barbtn id=helptog title="Toggle hover-help: when on, point at any control to see what it does in the strip below.">? Help</button>
@@ -380,7 +386,7 @@ function setCmd(p){$('cmd').textContent=p+'%';api('/api/set?g='+toRaw(p))}   // 
 $('set').onclick=()=>{if(blocked())flashBlk();var cp=capPct(),v=+$('num').value;
  if(Math.abs(v)>cp){v=(v<0?-cp:cp);$('num').value=v;$('cap').classList.add('blk');setTimeout(()=>$('cap').classList.remove('blk'),350);}  // clamped to cap
  $('sl').value=v;setCmd(v);paintSlider()};
-$('arm').onclick=()=>api('/api/arm?on='+($('arm').classList.contains('off')?1:0));
+$('arm').onclick=()=>api('/api/arm?on='+((S&&S.armed)?0:1));   // flip the toggle
 $('zero').onclick=()=>{api('/api/stop');$('sl').value=0;$('num').value=0;paintSlider()};   // soft-stop latch (halts DRIFT too)
 $('es').onclick=()=>{$('sl').value=0;setCmd(0);api('/api/estop')};
 $('clr').onclick=()=>api('/api/clear');
@@ -557,7 +563,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('caphint').textContent=(cp>0&&Math.abs(toPct(s.applied))>=cp)?('⚠ at speed cap ('+cp+'%) — raise the cap above to go faster'):'';
  $('bar_amps').textContent=(t.amps_m1!=null)?t.amps_m1.toFixed(1)+' A':'—';
  $('bar_cmd').textContent=toPct(s.applied)+'%';
- const a=$('arm');a.textContent=s.armed?'ARMED':'DISARMED';a.className='arm'+(s.armed?'':' off');
+ $('arm').className='armsw'+(s.armed?' on':'');$('armlbl').textContent=s.armed?'ARMED':'DISARMED';
  $('cmd').textContent=toPct(s.applied)+'%'; // big readout = live applied command, as %
  paintSlider();                            // keep the center-out fill in sync with the slider
  $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
