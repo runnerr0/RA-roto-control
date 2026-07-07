@@ -50,6 +50,17 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 .barbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:8px 12px;font-size:13px}
 .barbtn.on{background:#8957e5;border-color:#8957e5;color:#fff}
 .helpstrip{margin-top:7px;padding:6px 10px;background:#0d2440;border:1px solid #1f6feb44;color:#79c0ff;border-radius:6px;font-size:12px;min-height:16px}
+/* two-phase drift instrument */
+.drow{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+.dlbl{min-width:140px;font-size:13px;color:#8b949e}
+.dlbl b{color:#58a6ff;font-family:ui-monospace,monospace;font-size:14px}
+.drow input[type=range]{flex:1;min-width:150px;width:auto}
+.dsub{font-size:12px;color:#8b949e;white-space:nowrap}
+/* settings & tuning menu */
+.settings{margin:14px 0;padding:12px 14px}
+.settings>summary{font-size:16px;padding:4px 0}
+.settings .card{background:#12161d}
+.settings .card:first-of-type{margin-top:12px}
 </style></head><body><div class=wrap>
 <div class=topbar id=topbar>
  <div class=topbar-main>
@@ -62,7 +73,20 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=helpstrip id=helpstrip style="display:none"></div>
 </div>
 <h1>RA Roto — Control Console</h1>
-<p class=sub>HDC2450 Motor 1 · pick a run mode, ARM, then drive. Turn on <b>? Help</b> in the top bar, then point at any control for an explanation.</p>
+<p class=sub>HDC2450 Motor 1 · pick a mode, ARM, then drive. Advanced tuning lives under <b>⚙ Settings &amp; tuning</b> at the bottom.</p>
+
+<div class=card id=tripcard style="display:none;border-color:#da3633">
+ <b style="color:#f85149">⚠ TRIP — motor stopped &amp; disarmed</b>
+ <div id=tripreason class=sub></div>
+ <div class=row style="margin-top:10px"><button class=zero id=rtrip>RESET TRIP</button></div>
+</div>
+
+<div class=card><b>Motion &amp; load <span class=q title="Open-loop: commanded motion is the speed proxy; current is the load/effort.">?</span></b>
+ <canvas id=cmot></canvas>
+ <div class=cap2>Commanded motion — <i>+ forward</i> / <u>− reverse</u>, center = stop. This is what you're telling the motor to do.</div>
+ <canvas id=cload></canvas>
+ <div class=cap2><b>Motor current</b> (effort/load) · red dashed = current limit. Rising current at steady command = increasing load.</div>
+</div>
 
 <div class=card id=cmdcard>
  <div class="row spread"><span>Status: <span id=st class="pill warn">…</span></span>
@@ -80,25 +104,33 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=val id=cmd>0</div>
  <div id=gate></div>
  <div id=botag style="color:#d29922;text-align:center;font-size:13px;font-weight:700;min-height:16px"></div>
+
  <input id=sl type=range min=-1000 max=1000 value=0 step=1>
- <div class=row style="margin-top:10px">
-  <span>Set <input id=num class=num type=number min=-1000 max=1000 value=0 step=10 title="Type a target and Apply (CRUISE/HOLD)."></span>
-  <button id=set class=zero>Apply</button>
-  <button id=arm class="arm off" title="Enable motion. Nothing moves until ARMED.">DISARMED</button>
-  <button id=zero class=clr title="Command 0 without disarming.">Zero</button>
-  <button id=clr class=clr>Clear E-Stop</button>
+
+ <div class=row id=speedbox style="margin-top:10px;display:none">
+  <span>Speed <input id=num class=num type=number min=-1000 max=1000 value=0 step=10 title="Type an exact speed and apply (CRUISE/HOLD/CREEP)."></span>
+  <button id=set class=zero>Go</button>
+  <span class=q title="Type an exact speed and apply — used in CRUISE / HOLD / CREEP.">?</span>
  </div>
 
- <div class=row id=oscbox style="margin-top:10px;display:none">
-  <span class=sub>Drift:</span>
-  swing ± <input id=oamp class=num type=number min=0 max=1000 value=150 title="Swing — how far it drifts each way from the center. Bigger = wider back-and-forth.">
-  · center <input id=ocenter class=num type=number min=-1000 max=1000 value=0 step=10 title="The rest/zero point the drift oscillates around. 0 = balanced back-and-forth (returns each cycle). Nonzero = a net creep in that direction.">
-  · period <input id=operiod class=num type=number min=1 step=1 value=20 title="Seconds for one full there-and-back cycle."> s
-  · <select id=owave class=cap title="Motion shape: sine = smooth ease in/out, triangle = constant speed each way, saw = drift one way then snap back."><option value=sine>sine</option><option value=triangle>triangle</option><option value=saw>saw</option></select>
-  <button id=oset class=clr>Apply</button>
- </div>
- <div id=driftviz style="display:none;margin-top:8px">
-  <canvas id=cdrift style="height:58px"></canvas>
+ <div id=driftbox style="display:none;margin-top:10px">
+  <div class=cap2>Two-phase drift: hold <b>A</b>, ramp to <b>B</b>, hold <b>B</b>, ramp back — repeat.</div>
+  <div class=drow>
+   <span class=dlbl>Side A speed <b id=dA_spdv>200</b></span>
+   <input id=dA_spd type=range min=-1000 max=1000 value=200 step=1 title="Side A speed (-1000 reverse … +1000 forward).">
+   <span class=dsub>hold <input id=dA_t class=num type=number min=0.1 step=0.5 value=10 title="Seconds to hold Side A."> s</span>
+  </div>
+  <div class=drow>
+   <span class=dlbl>Side B speed <b id=dB_spdv>-200</b></span>
+   <input id=dB_spd type=range min=-1000 max=1000 value=-200 step=1 title="Side B speed (-1000 reverse … +1000 forward).">
+   <span class=dsub>hold <input id=dB_t class=num type=number min=0.1 step=0.5 value=10 title="Seconds to hold Side B."> s</span>
+  </div>
+  <div class=row style="margin-top:8px">
+   <span class=dsub>Ramp <input id=dRamp class=num type=number min=0 step=0.5 value=2 title="Seconds to ease smoothly between the two sides."> s</span>
+   <button id=dApply class=zero>Apply drift</button>
+   <span class="pill warn" id=dphase>—</span>
+  </div>
+  <canvas id=cdrift style="height:64px;margin-top:8px"></canvas>
   <div class=cap2 id=drifttxt></div>
  </div>
 
@@ -109,127 +141,127 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <button id=cset class=clr>Apply</button>
  </div>
 
- <div class="row" style="margin-top:10px">
-  <span class=sub>Stall trip: <span class=q title="RUN modes only. If current holds near the limit this long, it's a jam -> stop.">?</span></span>
-  <input id=tamps class=num type=number min=0.1 step=0.1 value=4.5> A for
-  <input id=tms class=num type=number min=50 step=50 value=800> ms <button id=tset class=clr>Apply</button>
- </div>
- <div class="row" style="margin-top:10px">
-  <span class=sub>Protect: <span class=q title="Always on, incl. HOLD. Temp is the real damage signal; I2t catches sustained heavy current.">?</span></span>
-  temp <input id=ttemp class=num type=number min=0 step=1 value=70> °C · I²t <input id=theat class=num type=number min=0 step=50 value=600> A²s <button id=pset class=clr>Apply</button>
- </div>
- <div class="row" style="margin-top:10px">
-  <span class=sub>Overtorque backoff: <span class=q title="When amps sit at/above this level, the command is gently ramped DOWN to relieve torque — so a jam can't wind up and break free violently. Recovers when relieved. Suppressed during the lift test.">?</span></span>
-  <label class=sub><input type=checkbox id=boon checked> on</label>
-  at <input id=boamps class=num type=number min=0 step=0.5 value=4> A for <input id=boms class=num type=number min=50 step=50 value=400> ms
-  <button id=boset class=clr>Apply</button>
+ <div class=row style="margin-top:10px">
+  <button id=arm class="arm off" title="Enable motion. Nothing moves until ARMED.">DISARMED</button>
+  <button id=zero class=clr title="Command 0 without disarming (does not exit the run mode).">Stop</button>
+  <button id=clr class=clr>Clear E-Stop</button>
  </div>
  <div class=hint id=hint>—</div>
-</div>
-
-<div class=card id=tripcard style="display:none;border-color:#da3633">
- <b style="color:#f85149">⚠ TRIP — motor stopped &amp; disarmed</b>
- <div id=tripreason class=sub></div>
- <div class=row style="margin-top:10px"><button class=zero id=rtrip>RESET TRIP</button></div>
-</div>
-
-<div class=card><b>Motion &amp; load <span class=q title="Open-loop: commanded motion is the speed proxy; current is the load/effort.">?</span></b>
- <canvas id=cmot></canvas>
- <div class=cap2>Commanded motion — <i>+ forward</i> / <u>− reverse</u>, center = stop. This is what you're telling the motor to do.</div>
- <canvas id=cload></canvas>
- <div class=cap2><b>Motor current</b> (effort/load) · red dashed = current limit. Rising current at steady command = increasing load.</div>
-</div>
-
-<div class=card><b>Advanced graph <span class=q title="Overlay any controller telemetry over time. Each trace auto-scales to fit; live values are in the legend. Click a legend chip to toggle it.">?</span></b>
- <div id=aglegend class=cap2 style="margin:0 0 6px"></div>
- <canvas id=cadv></canvas>
- <div class=cap2>Traces auto-scaled to fill · click a legend chip to show/hide · values are live.</div>
-</div>
-
-<div class=card><b>Live numbers</b>
- <div class=grid>
-  <div class=stat title="Motor amps x battery volts."><div class=k>Power</div><div class=v id=h_pw>—</div></div>
-  <div class=stat title="Highest current seen this session."><div class=k>Peak amps</div><div class=v id=h_pk>—</div></div>
-  <div class=stat><div class=k>Avg amps</div><div class=v id=h_av>—</div></div>
-  <div class=stat title="Command as % of full scale."><div class=k>Applied</div><div class=v id=h_ap>—</div></div>
-  <div class=stat><div class=k>Battery</div><div class=v id=h_bv>—</div></div>
-  <div class=stat title="Voltage drop from the highest seen = system load/strain."><div class=k>Sag</div><div class=v id=h_sg>—</div></div>
-  <div class=stat><div class=k>Max temp</div><div class=v id=h_tp>—</div></div>
-  <div class=stat><div class=k>Run time</div><div class=v id=h_rt>—</div></div>
-  <div class=stat title="Thermal budget used. 100% trips."><div class=k>I²t heat</div><div class=v id=h_ht>—</div></div>
- </div>
-</div>
-
-<div class=card><div class="row spread"><b>Characterization log</b>
-  <span><span class=sub>rate</span> <select id=lograte class=cap title="Sampling rate. Aggressive (15 Hz) for fine tuning; motor amps update every tick, slower telemetry at its own rate."><option value=3>5 Hz</option><option value=1>15 Hz (aggressive)</option></select>
-  <button id=logbtn class=zero>● Start logging</button>
-  <button id=logcopy class=clr title="Copy the log file name, row count, logging state, and recent alert lines to the clipboard.">Copy</button></span></div>
- <div class=sub id=logstat style="margin-top:6px">Full telemetry (command · amps · supply A · power · volts · temp · at-limit · backoff) + every config change &amp; test event → CSV in <code>tools/roto-bench/logs/</code>.</div>
-</div>
-
-<div class=card id=sweepcard><b>Characterization sweep <span class=q title="Steps the command up in increments, waits, and records the settled amps at each level — maps command→load for THIS motor. It MOVES THE MOTOR; requires ARM. Auto-enables logging.">?</span></b>
- <div class=row style="margin-top:6px">
-  <span class=sub>step</span> <input id=swstep class=num type=number min=1 max=1000 value=25 title="Command increment per step.">
-  <span class=sub>· dwell</span> <input id=swdwell class=num type=number min=0.2 step=0.1 value=1.5 title="Seconds per step: first ~40% settles, remainder is averaged."> <span class=sub>s</span>
-  <span class=sub>· max</span> <input id=swmax class=num type=number min=0 max=1000 value=300 title="Top command level. Clamped to the speed cap.">
-  <span class=sub>·</span> <select id=swdir class=cap title="Direction(s) to characterize."><option value=fwd>fwd</option><option value=rev>rev</option><option value=both>both</option></select>
- </div>
- <div class=row style="margin-top:10px">
-  <button id=swrun class=zero title="Runs an automated command sweep. MOVES THE MOTOR — ARM first.">▶ Run characterization</button>
-  <button id=swstop class=clr>Abort sweep</button>
-  <span class=sub id=swstat>idle</span>
- </div>
- <canvas id=cswp style="margin-top:10px"></canvas>
- <div class=cap2>Command→amps curve for the current load · <b>blue</b> = sweep points · <u>amber</u> dashed = est. breakaway command.</div>
- <table id=swtab></table>
- <div class=row style="margin-top:10px">
-  <span class=sub>Save preset</span>
-  <input id=swname class=num style="width:130px" placeholder="name" title="Name for this characterization preset.">
-  <button id=swsave class=clr>Save</button>
-  <span class=sub>·</span> <select id=swpresets class=cap title="Saved characterization presets."></select>
-  <button id=swload class=clr>Load</button>
- </div>
- <div class=sub id=swbase style="margin-top:8px">Baseline: —</div>
-</div>
-
-<div class=card id=liftcard style="border-color:#8957e5"><b>⬆ Guided lift test <span class=q title="Holds a slow command and raises the current limit (ALIM) rung by rung until the loaded roto breaks free, then reports the current the load draws. RAISES ALIM and MOVES THE MOTOR; requires ARM. Auto-restores the safe limit on any abort / trip / over-temp.">?</span></b>
- <div class=cap2 style="color:#d29922">⚠ Raises the controller current limit under load — be on the real supply, fuse &amp; wire for the current, E-STOP reachable.</div>
- <div class=row style="margin-top:6px">
-  <span class=sub>ALIM start</span> <input id=lfstart class=num type=number min=1 step=0.5 value=5 title="Starting current limit (A).">
-  <span class=sub>· step</span> <input id=lfstep class=num type=number min=0.5 step=0.5 value=2.5 title="ALIM increment per rung (A).">
-  <span class=sub>· max</span> <input id=lfmax class=num type=number min=1 step=1 value=25 title="Ceiling — the test never exceeds this (A)."> <span class=sub>A</span>
- </div>
- <div class=row style="margin-top:6px">
-  <span class=sub>hold cmd</span> <input id=lfcmd class=num type=number min=-1000 max=1000 value=200 title="Slow command held during the test (also clamped to the speed cap).">
-  <span class=sub>· dwell</span> <input id=lfdwell class=num type=number min=0.5 step=0.5 value=3 title="Seconds per rung."> <span class=sub>s</span>
-  <span class=sub>· stop °C</span> <input id=lftemp class=num type=number min=0 step=1 value=65 title="Auto-stop temperature.">
- </div>
- <div class=row style="margin-top:10px">
-  <button id=lfrun class=zero title="Steps ALIM up under load. RAISES CURRENT LIMIT + MOVES MOTOR — ARM first, be on the real supply.">⬆ Run lift test</button>
-  <button id=lfstop class=clr>Abort</button>
-  <span class=sub id=lfstat>idle</span>
- </div>
- <div id=lfresult class=hint style="display:none"></div>
- <table id=lftab></table>
 </div>
 
 <div class=card><div class="row spread"><b>Alerts</b><button id=aclear class=clr style="padding:6px 12px;font-size:13px">Clear log</button></div>
  <div id=aactive style="margin:8px 0"></div><div id=alog></div></div>
 
-<div class=card><b>Controller health</b><table id=tele></table></div>
+<details class=settings id=settingsmenu>
+ <summary><b>⚙ Settings &amp; tuning</b> &nbsp;<span class=sub>trips · protection · characterization · profile · diagnostics · collapsed by default</span></summary>
 
-<div class=card>
- <details><summary><b>⚙ Advanced — controller profile</b> &nbsp;<span class=sub>expert config · collapsed by default</span></summary>
-  <p class=sub style="margin:10px 0;white-space:normal">Live-edit the HDC2450's <b>own</b> configuration. Every write goes to controller <b>RAM</b> and is read back to confirm. These are the real motor-controller limits — changing them affects a 2×150 A drive. Use <b>Re-apply safe profile</b> to restore known-good values (e.g. after a controller reset).</p>
-  <table id=prof></table>
-  <div class=row style="margin-top:10px">
-   <button id=reapply class=zero title="Restore ALIM/RWD/AINA to the safe baseline — fixes control drift after a reset.">Re-apply safe profile</button>
-   <button id=flash class=clr title="Persist current RAM values to controller flash so they survive a power cycle.">Save to flash</button>
+ <div class=card><b>Trips &amp; protection</b>
+  <div class="row">
+   <span class=sub>Stall trip: <span class=q title="RUN modes only. If current holds near the limit this long, it's a jam -> stop.">?</span></span>
+   <input id=tamps class=num type=number min=0.1 step=0.1 value=4.5> A for
+   <input id=tms class=num type=number min=50 step=50 value=800> ms <button id=tset class=clr>Apply</button>
   </div>
-  <div id=cfglog class=sub style="margin-top:8px;font-family:ui-monospace,monospace;white-space:pre-wrap"></div>
- </details>
-</div>
-<div class=card><details><summary><b>Input diagnostics</b> <span class=sub>same DB25 pin reads analog OR pulse per config · collapsed by default</span></summary><table id=diag class=diag></table></details></div>
+  <div class="row" style="margin-top:10px">
+   <span class=sub>Protect: <span class=q title="Always on, incl. HOLD. Temp is the real damage signal; I2t catches sustained heavy current.">?</span></span>
+   temp <input id=ttemp class=num type=number min=0 step=1 value=70> °C · I²t <input id=theat class=num type=number min=0 step=50 value=600> A²s <button id=pset class=clr>Apply</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+   <span class=sub>Overtorque backoff: <span class=q title="When amps sit at/above this level, the command is gently ramped DOWN to relieve torque — so a jam can't wind up and break free violently. Recovers when relieved. Suppressed during the lift test.">?</span></span>
+   <label class=sub><input type=checkbox id=boon checked> on</label>
+   at <input id=boamps class=num type=number min=0 step=0.5 value=4> A for <input id=boms class=num type=number min=50 step=50 value=400> ms
+   <button id=boset class=clr>Apply</button>
+  </div>
+ </div>
+
+ <div class=card><b>Advanced graph <span class=q title="Overlay any controller telemetry over time. Each trace auto-scales to fit; live values are in the legend. Click a legend chip to toggle it.">?</span></b>
+  <div id=aglegend class=cap2 style="margin:0 0 6px"></div>
+  <canvas id=cadv></canvas>
+  <div class=cap2>Traces auto-scaled to fill · click a legend chip to show/hide · values are live.</div>
+ </div>
+
+ <div class=card><b>Live numbers</b>
+  <div class=grid>
+   <div class=stat title="Motor amps x battery volts."><div class=k>Power</div><div class=v id=h_pw>—</div></div>
+   <div class=stat title="Highest current seen this session."><div class=k>Peak amps</div><div class=v id=h_pk>—</div></div>
+   <div class=stat><div class=k>Avg amps</div><div class=v id=h_av>—</div></div>
+   <div class=stat title="Command as % of full scale."><div class=k>Applied</div><div class=v id=h_ap>—</div></div>
+   <div class=stat><div class=k>Battery</div><div class=v id=h_bv>—</div></div>
+   <div class=stat title="Voltage drop from the highest seen = system load/strain."><div class=k>Sag</div><div class=v id=h_sg>—</div></div>
+   <div class=stat><div class=k>Max temp</div><div class=v id=h_tp>—</div></div>
+   <div class=stat><div class=k>Run time</div><div class=v id=h_rt>—</div></div>
+   <div class=stat title="Thermal budget used. 100% trips."><div class=k>I²t heat</div><div class=v id=h_ht>—</div></div>
+  </div>
+ </div>
+
+ <div class=card><b>Controller health</b><table id=tele></table></div>
+
+ <div class=card><div class="row spread"><b>Characterization log</b>
+   <span><span class=sub>rate</span> <select id=lograte class=cap title="Sampling rate. Aggressive (15 Hz) for fine tuning; motor amps update every tick, slower telemetry at its own rate."><option value=3>5 Hz</option><option value=1>15 Hz (aggressive)</option></select>
+   <button id=logbtn class=zero>● Start logging</button>
+   <button id=logcopy class=clr title="Copy the log file name, row count, logging state, and recent alert lines to the clipboard.">Copy</button></span></div>
+  <div class=sub id=logstat style="margin-top:6px">Full telemetry (command · amps · supply A · power · volts · temp · at-limit · backoff) + every config change &amp; test event → CSV in <code>tools/roto-bench/logs/</code>.</div>
+ </div>
+
+ <div class=card id=sweepcard><b>Characterization sweep <span class=q title="Steps the command up in increments, waits, and records the settled amps at each level — maps command→load for THIS motor. It MOVES THE MOTOR; requires ARM. Auto-enables logging.">?</span></b>
+  <div class=row style="margin-top:6px">
+   <span class=sub>step</span> <input id=swstep class=num type=number min=1 max=1000 value=25 title="Command increment per step.">
+   <span class=sub>· dwell</span> <input id=swdwell class=num type=number min=0.2 step=0.1 value=1.5 title="Seconds per step: first ~40% settles, remainder is averaged."> <span class=sub>s</span>
+   <span class=sub>· max</span> <input id=swmax class=num type=number min=0 max=1000 value=300 title="Top command level. Clamped to the speed cap.">
+   <span class=sub>·</span> <select id=swdir class=cap title="Direction(s) to characterize."><option value=fwd>fwd</option><option value=rev>rev</option><option value=both>both</option></select>
+  </div>
+  <div class=row style="margin-top:10px">
+   <button id=swrun class=zero title="Runs an automated command sweep. MOVES THE MOTOR — ARM first.">▶ Run characterization</button>
+   <button id=swstop class=clr>Abort sweep</button>
+   <span class=sub id=swstat>idle</span>
+  </div>
+  <canvas id=cswp style="margin-top:10px"></canvas>
+  <div class=cap2>Command→amps curve for the current load · <b>blue</b> = sweep points · <u>amber</u> dashed = est. breakaway command.</div>
+  <table id=swtab></table>
+  <div class=row style="margin-top:10px">
+   <span class=sub>Save preset</span>
+   <input id=swname class=num style="width:130px" placeholder="name" title="Name for this characterization preset.">
+   <button id=swsave class=clr>Save</button>
+   <span class=sub>·</span> <select id=swpresets class=cap title="Saved characterization presets."></select>
+   <button id=swload class=clr>Load</button>
+  </div>
+  <div class=sub id=swbase style="margin-top:8px">Baseline: —</div>
+ </div>
+
+ <div class=card id=liftcard style="border-color:#8957e5"><b>⬆ Guided lift test <span class=q title="Holds a slow command and raises the current limit (ALIM) rung by rung until the loaded roto breaks free, then reports the current the load draws. RAISES ALIM and MOVES THE MOTOR; requires ARM. Auto-restores the safe limit on any abort / trip / over-temp.">?</span></b>
+  <div class=cap2 style="color:#d29922">⚠ Raises the controller current limit under load — be on the real supply, fuse &amp; wire for the current, E-STOP reachable.</div>
+  <div class=row style="margin-top:6px">
+   <span class=sub>ALIM start</span> <input id=lfstart class=num type=number min=1 step=0.5 value=5 title="Starting current limit (A).">
+   <span class=sub>· step</span> <input id=lfstep class=num type=number min=0.5 step=0.5 value=2.5 title="ALIM increment per rung (A).">
+   <span class=sub>· max</span> <input id=lfmax class=num type=number min=1 step=1 value=25 title="Ceiling — the test never exceeds this (A)."> <span class=sub>A</span>
+  </div>
+  <div class=row style="margin-top:6px">
+   <span class=sub>hold cmd</span> <input id=lfcmd class=num type=number min=-1000 max=1000 value=200 title="Slow command held during the test (also clamped to the speed cap).">
+   <span class=sub>· dwell</span> <input id=lfdwell class=num type=number min=0.5 step=0.5 value=3 title="Seconds per rung."> <span class=sub>s</span>
+   <span class=sub>· stop °C</span> <input id=lftemp class=num type=number min=0 step=1 value=65 title="Auto-stop temperature.">
+  </div>
+  <div class=row style="margin-top:10px">
+   <button id=lfrun class=zero title="Steps ALIM up under load. RAISES CURRENT LIMIT + MOVES MOTOR — ARM first, be on the real supply.">⬆ Run lift test</button>
+   <button id=lfstop class=clr>Abort</button>
+   <span class=sub id=lfstat>idle</span>
+  </div>
+  <div id=lfresult class=hint style="display:none"></div>
+  <table id=lftab></table>
+ </div>
+
+ <div class=card>
+  <details><summary><b>⚙ Advanced — controller profile</b> &nbsp;<span class=sub>expert config · collapsed by default</span></summary>
+   <p class=sub style="margin:10px 0;white-space:normal">Live-edit the HDC2450's <b>own</b> configuration. Every write goes to controller <b>RAM</b> and is read back to confirm. These are the real motor-controller limits — changing them affects a 2×150 A drive. Use <b>Re-apply safe profile</b> to restore known-good values (e.g. after a controller reset).</p>
+   <table id=prof></table>
+   <div class=row style="margin-top:10px">
+    <button id=reapply class=zero title="Restore ALIM/RWD/AINA to the safe baseline — fixes control drift after a reset.">Re-apply safe profile</button>
+    <button id=flash class=clr title="Persist current RAM values to controller flash so they survive a power cycle.">Save to flash</button>
+   </div>
+   <div id=cfglog class=sub style="margin-top:8px;font-family:ui-monospace,monospace;white-space:pre-wrap"></div>
+  </details>
+ </div>
+
+ <div class=card><details><summary><b>Input diagnostics</b> <span class=sub>same DB25 pin reads analog OR pulse per config · collapsed by default</span></summary><table id=diag class=diag></table></details></div>
+</details>
 </div><script>
 const $=id=>document.getElementById(id);
 function D(x,f){return (x==null)?(f===undefined?'—':f):x}  // legacy-safe nullish helper (avoids ES2020 syntax)
@@ -249,12 +281,12 @@ const PROF=[
 ];
 const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioning.',
  cruise:'Set a speed; it holds. Stall-protected. Steady running.',
- drift:'Drifts the roto back and forth on its own — swings one way, then the other, around a center. Set the swing (how far each way) and period (how long a cycle). The bar below shows the two extremes and where it is right now.',
+ drift:'Drifts the roto between two setpoints on its own — holds Side A, eases over to Side B, holds B, eases back, and repeats. Set each side\'s speed and how long to hold it, plus the ramp time. The bar below shows A, B, and where it is right now.',
  hold:'Maintain position under load. Stall-trip OFF; temperature/I²t protect.',
  creep:'Very slow under load. Stall-trip OFF (slow+load looks like a stall) — temp/I²t protect. Anti-stiction kick on start.'};
 const MODELIST=['jog','cruise','drift','hold','creep'];
 const HIST=[],MAXH=400;
-let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={},S=null;
+let rmode='jog',ampLimit=5,peak=0,runStart=0,nomV=0,profBuilt=false,active={},prevActive={},S=null,driftSynced=false;
 const TH={hot:60,critHot:80,ampWarn:0.8,vLow:18,vHigh:52};
 function api(p){return new Promise(function(res){try{var x=new XMLHttpRequest();x.open('GET',p);x.onreadystatechange=function(){if(x.readyState===4){try{res(JSON.parse(x.responseText))}catch(e){res(null)}}};x.onerror=function(){res(null)};x.send()}catch(e){res(null)}})}
 function blocked(){return S&&(!S.armed||S.estop||S.tripped)}
@@ -265,10 +297,13 @@ function setMode(m){rmode=m;api('/api/runmode?m='+m);paintMode()}
 function paintMode(){
  MODELIST.forEach(m=>$('m_'+m).className='modebtn'+(m===rmode?' on':''));
  $('modedesc').textContent=MODES[rmode];
- $('oscbox').style.display=(rmode==='drift')?'flex':'none';
- $('driftviz').style.display=(rmode==='drift')?'block':'none';
+ const showSlider=(rmode==='jog'||rmode==='cruise');
+ const showSpeed=(rmode==='cruise'||rmode==='hold'||rmode==='creep');
+ $('sl').style.display=showSlider?'block':'none';
+ $('speedbox').style.display=showSpeed?'flex':'none';
+ $('driftbox').style.display=(rmode==='drift')?'block':'none';
  $('creepbox').style.display=(rmode==='creep')?'flex':'none';
- $('sl').disabled=(rmode==='drift');
+ $('sl').disabled=false;
 }
 MODELIST.forEach(m=>$('m_'+m).onclick=()=>setMode(m));
 
@@ -283,7 +318,6 @@ $('zero').onclick=()=>{$('sl').value=0;$('num').value=0;setCmd(0)};
 $('es').onclick=()=>{$('sl').value=0;setCmd(0);api('/api/estop')};
 $('clr').onclick=()=>api('/api/clear');
 $('cap').onchange=e=>api('/api/cap?v='+e.target.value);
-$('oset').onclick=()=>api('/api/osc?amp='+$('oamp').value+'&center='+$('ocenter').value+'&period='+$('operiod').value+'&wave='+$('owave').value);
 $('tset').onclick=()=>api('/api/trip?amps='+$('tamps').value+'&ms='+$('tms').value);
 $('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('theat').value);
 $('boset').onclick=()=>api('/api/backoff?on='+($('boon').checked?1:0)+'&amps='+$('boamps').value+'&ms='+$('boms').value);
@@ -293,6 +327,11 @@ $('reapply').onclick=()=>api('/api/reapply');
 $('aclear').onclick=()=>{$('alog').innerHTML=''};
 $('cset').onclick=()=>api('/api/creep?kick='+$('ckick').value+'&ms='+$('ckms').value);
 $('logbtn').onclick=()=>api('/api/log?on='+((S&&S.logging)?0:1)+'&div='+$('lograte').value);
+
+// ---- two-phase drift instrument ----
+$('dA_spd').addEventListener('input',e=>{$('dA_spdv').textContent=e.target.value});
+$('dB_spd').addEventListener('input',e=>{$('dB_spdv').textContent=e.target.value});
+$('dApply').onclick=()=>api('/api/drift?a='+$('dA_spd').value+'&ta='+$('dA_t').value+'&b='+$('dB_spd').value+'&tb='+$('dB_t').value+'&ramp='+$('dRamp').value);
 
 // ---- top bar: guide + help mode ----
 $('guidebtn').onclick=()=>window.open('/guide','_blank');
@@ -362,23 +401,23 @@ function drawAdv(){const c=$('cadv'),x=c.getContext('2d'),W=c.width=c.clientWidt
   x.strokeStyle=sr[2];x.lineWidth=1.5;x.beginPath();let started=false;
   HIST.forEach((h,i)=>{const v=h[sr[0]];if(v==null||isNaN(v)){started=false;return}const y=H*0.04+(H*0.92)*(1-(v-mn)/(mx-mn));started?x.lineTo(i*dx,y):x.moveTo(i*dx,y);started=true});
   x.stroke()});x.lineWidth=1}
-// ---- drift range + live position ----
+// ---- two-phase drift: setpoints + live position + phase ----
 function drawDrift(s){const c=$('cdrift'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height;x.clearRect(0,0,W,H);
- const amp=(s.osc_amp!=null?s.osc_amp:0),ctr=(s.osc_center!=null?s.osc_center:0),lo=ctr-amp,hi=ctr+amp;
- const span=Math.max(1000,Math.abs(lo),Math.abs(hi))*1.12,midY=H*0.42;
- const X=v=>W/2+(v/span)*(W/2-8);
+ const a=D(s.drift_a,0),b=D(s.drift_b,0),cur=D(s.applied,0),ph=D(s.drift_phase,'');
+ const span=1000*1.08,midY=H*0.5;
+ const X=v=>W/2+(v/span)*(W/2-12);
  x.strokeStyle='#30363d';x.beginPath();x.moveTo(0,midY);x.lineTo(W,midY);x.stroke();
- x.fillStyle='#8b949e';x.font='10px monospace';x.fillText('rev',3,11);x.fillText('fwd',W-20,11);
- x.fillStyle='#8957e533';x.fillRect(X(lo),midY-11,X(hi)-X(lo),22);
- x.strokeStyle='#8957e5';x.strokeRect(X(lo),midY-11,X(hi)-X(lo),22);
- x.strokeStyle='#79c0ff';x.beginPath();x.moveTo(X(ctr),midY-15);x.lineTo(X(ctr),midY+15);x.stroke();  // center
- x.fillStyle='#d2a8ff';x.fillText(Math.round(lo),X(lo)-9,midY+24);x.fillText(Math.round(hi),X(hi)-9,midY+24);
- x.fillStyle='#8b949e';x.fillText('center '+Math.round(ctr),X(ctr)-24,midY-19);
- const cur=(s.applied!=null?s.applied:0);                                   // live position
- x.fillStyle='#3fb950';x.beginPath();x.arc(X(cur),midY,6,0,2*Math.PI);x.fill();
- const wv=(s.osc_wave||'sine'),pr=(s.osc_period!=null?s.osc_period:0);
- $('drifttxt').innerHTML='Drifts back and forth between cmd <b>'+Math.round(lo)+'</b> and <b>'+Math.round(hi)+'</b> · '
-  +pr+' s per cycle · '+wv+'. Green dot = command right now; purple band = the swing; blue tick = center.';
+ x.fillStyle='#8b949e';x.font='10px monospace';x.fillText('rev',3,H-4);x.fillText('0',W/2-3,H-4);x.fillText('fwd',W-22,H-4);
+ x.strokeStyle='#484f58';x.beginPath();x.moveTo(W/2,midY-16);x.lineTo(W/2,midY+16);x.stroke();  // center
+ const setpoint=(v,col,lbl,on)=>{const px=X(v);x.strokeStyle=col;x.lineWidth=on?3:1.5;
+  x.beginPath();x.moveTo(px,midY-18);x.lineTo(px,midY+18);x.stroke();x.lineWidth=1;
+  x.fillStyle=col;x.font=(on?'bold ':'')+'11px monospace';x.fillText(lbl+' '+Math.round(v),px-10,midY-22)};
+ setpoint(a,'#58a6ff','A',ph==='holdA');
+ setpoint(b,'#d2a8ff','B',ph==='holdB');
+ x.fillStyle='#3fb950';x.beginPath();x.arc(X(cur),midY,6,0,2*Math.PI);x.fill();   // live command
+ const phName={holdA:'holding A',rampAB:'ramping A→B',holdB:'holding B',rampBA:'ramping B→A'}[ph]||'—';
+ const pill=$('dphase');pill.textContent=phName;pill.className='pill '+((ph==='holdA'||ph==='holdB')?'ok':'warn');
+ $('drifttxt').innerHTML='Drives <b>A</b> at '+Math.round(a)+' for '+D(s.drift_ta,'?')+' s, then <b>B</b> at '+Math.round(b)+' for '+D(s.drift_tb,'?')+' s, '+D(s.drift_ramp,'?')+' s ramp. Green dot = command now; blue tick = A, purple tick = B.';
 }
 function drawSweep(res,breakaway){const c=$('cswp'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height,PADL=34,PADB=18;x.clearRect(0,0,W,H);
  x.strokeStyle='#30363d';x.beginPath();x.moveTo(PADL,H-PADB);x.lineTo(W,H-PADB);x.moveTo(PADL,4);x.lineTo(PADL,H-PADB);x.stroke();
@@ -420,9 +459,9 @@ function hint(s){let h;
  else if(s.tripped)h='Tripped: clear the jam/cause → RESET TRIP → ARM.';
  else if(!s.armed)h='Disarmed — press ARM to enable motion.';
  else if(s.run_mode==='jog'&&s.deadman)h='No control contact — move the mouse or refocus this tab.';
- else if(s.run_mode==='drift')h='Drifting. Tune amplitude/period; ARM off or E-STOP to stop.';
+ else if(s.run_mode==='drift')h='Drifting between A and B. Tune the two sides / hold times / ramp; ARM off or E-STOP to stop.';
  else if(s.run_mode==='jog')h='Armed — hold the slider to run, release to stop.';
- else h='Armed — set a speed with the slider or Apply; it will hold.';
+ else h='Armed — set a speed with the slider or Go; it will hold.';
  $('hint').textContent=h}
 
 function fmtDur(ms){const s=Math.floor(ms/1000);return(s>=60?Math.floor(s/60)+'m ':'')+(s%60)+'s'}
@@ -441,7 +480,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('bar_amps').textContent=(t.amps_m1!=null)?t.amps_m1.toFixed(1)+' A':'—';
  $('bar_cmd').textContent=s.applied;
  const a=$('arm');a.textContent=s.armed?'ARMED':'DISARMED';a.className='arm'+(s.armed?'':' off');
- if(s.run_mode==='drift')$('cmd').textContent=s.applied; // reflect oscillator
+ if(s.run_mode==='drift')$('cmd').textContent=s.applied; // reflect drift
  $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
  $('botag').textContent=s.backoff_active?('⤵ OVERTORQUE — command relieved to '+Math.round((s.backoff_scale!=null?s.backoff_scale:1)*100)+'% to avoid breaking free'):'';
  hint(s);
@@ -451,6 +490,11 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('gate').textContent=(g&&Math.abs(s.target)>0)?('⛔ output held at 0 — '+g):'';
  $('logbtn').textContent=s.logging?'■ Stop logging':'● Start logging';
  if(s.log_name)$('logstat').innerHTML=(s.logging?'● Recording':'■ Stopped')+' → <code>logs/'+s.log_name+'</code> · '+(s.log_rows||0)+' rows';
+ // sync drift inputs once from backend defaults
+ if(!driftSynced&&s.drift_a!=null){driftSynced=true;
+  $('dA_spd').value=s.drift_a;$('dA_spdv').textContent=Math.round(s.drift_a);
+  $('dB_spd').value=s.drift_b;$('dB_spdv').textContent=Math.round(s.drift_b);
+  $('dA_t').value=s.drift_ta;$('dB_t').value=s.drift_tb;$('dRamp').value=s.drift_ramp;}
  // history + heuristics
  const amps=(t.amps_m1!=null)?t.amps_m1:0,v=(t.volts_batt!=null)?t.volts_batt:0;
  const he={a:amps,ap:s.applied};AGSER.forEach(sr=>{if(sr[0]!=='a')he[sr[0]]=sr[3](t)});
