@@ -91,11 +91,15 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 
  <div class=row id=oscbox style="margin-top:10px;display:none">
   <span class=sub>Drift:</span>
-  amp <input id=oamp class=num type=number min=0 max=1000 value=150 title="Sweep size — how far it swings each side of center.">
-  · center <input id=ocenter class=num type=number min=-1000 max=1000 value=0 step=10 title="Bias the sweep drifts around. 0 = balanced fwd/rev; +300 = mostly forward, gently breathing.">
-  · period <input id=operiod class=num type=number min=1 step=1 value=20 title="Seconds per full cycle."> s
-  · <select id=owave class=cap title="Sweep shape: sine = smooth, triangle = linear, saw = ramp+snap."><option value=sine>sine</option><option value=triangle>triangle</option><option value=saw>saw</option></select>
+  swing ± <input id=oamp class=num type=number min=0 max=1000 value=150 title="Swing — how far it drifts each way from the center. Bigger = wider back-and-forth.">
+  · center <input id=ocenter class=num type=number min=-1000 max=1000 value=0 step=10 title="The rest/zero point the drift oscillates around. 0 = balanced back-and-forth (returns each cycle). Nonzero = a net creep in that direction.">
+  · period <input id=operiod class=num type=number min=1 step=1 value=20 title="Seconds for one full there-and-back cycle."> s
+  · <select id=owave class=cap title="Motion shape: sine = smooth ease in/out, triangle = constant speed each way, saw = drift one way then snap back."><option value=sine>sine</option><option value=triangle>triangle</option><option value=saw>saw</option></select>
   <button id=oset class=clr>Apply</button>
+ </div>
+ <div id=driftviz style="display:none;margin-top:8px">
+  <canvas id=cdrift style="height:58px"></canvas>
+  <div class=cap2 id=drifttxt></div>
  </div>
 
  <div class=row id=creepbox style="margin-top:10px;display:none">
@@ -245,7 +249,7 @@ const PROF=[
 ];
 const MODES={jog:'Hold the slider to run — releases to stop. Setup & positioning.',
  cruise:'Set a speed; it holds. Stall-protected. Steady running.',
- drift:'Auto slow sweep back and forth. Set amplitude & period. Ambient motion.',
+ drift:'Drifts the roto back and forth on its own — swings one way, then the other, around a center. Set the swing (how far each way) and period (how long a cycle). The bar below shows the two extremes and where it is right now.',
  hold:'Maintain position under load. Stall-trip OFF; temperature/I²t protect.',
  creep:'Very slow under load. Stall-trip OFF (slow+load looks like a stall) — temp/I²t protect. Anti-stiction kick on start.'};
 const MODELIST=['jog','cruise','drift','hold','creep'];
@@ -262,6 +266,7 @@ function paintMode(){
  MODELIST.forEach(m=>$('m_'+m).className='modebtn'+(m===rmode?' on':''));
  $('modedesc').textContent=MODES[rmode];
  $('oscbox').style.display=(rmode==='drift')?'flex':'none';
+ $('driftviz').style.display=(rmode==='drift')?'block':'none';
  $('creepbox').style.display=(rmode==='creep')?'flex':'none';
  $('sl').disabled=(rmode==='drift');
 }
@@ -357,6 +362,24 @@ function drawAdv(){const c=$('cadv'),x=c.getContext('2d'),W=c.width=c.clientWidt
   x.strokeStyle=sr[2];x.lineWidth=1.5;x.beginPath();let started=false;
   HIST.forEach((h,i)=>{const v=h[sr[0]];if(v==null||isNaN(v)){started=false;return}const y=H*0.04+(H*0.92)*(1-(v-mn)/(mx-mn));started?x.lineTo(i*dx,y):x.moveTo(i*dx,y);started=true});
   x.stroke()});x.lineWidth=1}
+// ---- drift range + live position ----
+function drawDrift(s){const c=$('cdrift'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height;x.clearRect(0,0,W,H);
+ const amp=(s.osc_amp!=null?s.osc_amp:0),ctr=(s.osc_center!=null?s.osc_center:0),lo=ctr-amp,hi=ctr+amp;
+ const span=Math.max(1000,Math.abs(lo),Math.abs(hi))*1.12,midY=H*0.42;
+ const X=v=>W/2+(v/span)*(W/2-8);
+ x.strokeStyle='#30363d';x.beginPath();x.moveTo(0,midY);x.lineTo(W,midY);x.stroke();
+ x.fillStyle='#8b949e';x.font='10px monospace';x.fillText('rev',3,11);x.fillText('fwd',W-20,11);
+ x.fillStyle='#8957e533';x.fillRect(X(lo),midY-11,X(hi)-X(lo),22);
+ x.strokeStyle='#8957e5';x.strokeRect(X(lo),midY-11,X(hi)-X(lo),22);
+ x.strokeStyle='#79c0ff';x.beginPath();x.moveTo(X(ctr),midY-15);x.lineTo(X(ctr),midY+15);x.stroke();  // center
+ x.fillStyle='#d2a8ff';x.fillText(Math.round(lo),X(lo)-9,midY+24);x.fillText(Math.round(hi),X(hi)-9,midY+24);
+ x.fillStyle='#8b949e';x.fillText('center '+Math.round(ctr),X(ctr)-24,midY-19);
+ const cur=(s.applied!=null?s.applied:0);                                   // live position
+ x.fillStyle='#3fb950';x.beginPath();x.arc(X(cur),midY,6,0,2*Math.PI);x.fill();
+ const wv=(s.osc_wave||'sine'),pr=(s.osc_period!=null?s.osc_period:0);
+ $('drifttxt').innerHTML='Drifts back and forth between cmd <b>'+Math.round(lo)+'</b> and <b>'+Math.round(hi)+'</b> · '
+  +pr+' s per cycle · '+wv+'. Green dot = command right now; purple band = the swing; blue tick = center.';
+}
 function drawSweep(res,breakaway){const c=$('cswp'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height,PADL=34,PADB=18;x.clearRect(0,0,W,H);
  x.strokeStyle='#30363d';x.beginPath();x.moveTo(PADL,H-PADB);x.lineTo(W,H-PADB);x.moveTo(PADL,4);x.lineTo(PADL,H-PADB);x.stroke();
  x.fillStyle='#8b949e';x.font='11px monospace';x.fillText('amps',6,12);x.fillText('cmd',W-28,H-4);
@@ -442,7 +465,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  const tp=(t.temp&&t.temp.length)?Math.max(...t.temp):null;$('h_tp').textContent=(tp!=null)?tp+'°C':'—';
  $('h_rt').textContent=runStart?fmtDur(performance.now()-runStart):'idle';
  $('h_ht').textContent=(s.heat_budget>0)?Math.round(100*s.heat_now/s.heat_budget)+'%':'off';
- drawMotion();drawLoad();drawAdv();agLegend(t);deriveAlerts(s,t);
+ drawMotion();drawLoad();drawAdv();agLegend(t);if(s.run_mode==='drift')drawDrift(s);deriveAlerts(s,t);
  // sweep
  $('swstat').textContent=D(s.sweep_status,'idle')+(s.sweep_active?(' · '+Math.round((s.sweep_progress||0)*100)+'%'):'');
  $('swrun').disabled=!!s.sweep_active;
