@@ -160,7 +160,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   </div>
   <div class=row style="margin-top:8px">
    <span class=dsub>Ramp <input id=dRamp class=num type=number min=0 step=0.5 value=2 title="Seconds to ease smoothly between the two sides."> s</span>
-   <button id=dApply class=zero title="Apply these Side A/B speeds, hold times, and ramp — the drift starts using them.">Apply drift</button>
+   <button id=dApply class=arm title="Apply the Side A/B pattern and START/RESUME the drift. Press Stop (below) to halt it.">▶ Run drift</button>
    <span class="pill warn" id=dphase>—</span>
   </div>
   <canvas id=cdrift style="height:64px;margin-top:8px"></canvas>
@@ -381,7 +381,7 @@ $('set').onclick=()=>{if(blocked())flashBlk();var cp=capPct(),v=+$('num').value;
  if(Math.abs(v)>cp){v=(v<0?-cp:cp);$('num').value=v;$('cap').classList.add('blk');setTimeout(()=>$('cap').classList.remove('blk'),350);}  // clamped to cap
  $('sl').value=v;setCmd(v);paintSlider()};
 $('arm').onclick=()=>api('/api/arm?on='+($('arm').classList.contains('off')?1:0));
-$('zero').onclick=()=>{$('sl').value=0;$('num').value=0;setCmd(0)};
+$('zero').onclick=()=>{api('/api/stop');$('sl').value=0;$('num').value=0;paintSlider()};   // soft-stop latch (halts DRIFT too)
 $('es').onclick=()=>{$('sl').value=0;setCmd(0);api('/api/estop')};
 $('clr').onclick=()=>api('/api/clear');
 $('cap').onchange=e=>{api('/api/cap?v='+toRaw(e.target.value));applyCap();};
@@ -487,7 +487,9 @@ function drawDrift(s){const c=$('cdrift'),x=c.getContext('2d'),W=c.width=c.clien
  setpoint(b,'#d2a8ff','B',ph==='holdB');
  x.fillStyle='#3fb950';x.beginPath();x.arc(X(cur),midY,6,0,2*Math.PI);x.fill();   // live command
  const phName={holdA:'holding A',rampAB:'ramping A→B',holdB:'holding B',rampBA:'ramping B→A'}[ph]||'—';
- const pill=$('dphase');pill.textContent=phName;pill.className='pill '+((ph==='holdA'||ph==='holdB')?'ok':'warn');
+ const pill=$('dphase');
+ if(s.stopped){pill.textContent='■ stopped';pill.className='pill bad';}
+ else{pill.textContent=phName;pill.className='pill '+((ph==='holdA'||ph==='holdB')?'ok':'warn');}
  $('drifttxt').innerHTML='Drives <b>A</b> at '+toPct(a)+'% for '+D(s.drift_ta,'?')+' s, then <b>B</b> at '+toPct(b)+'% for '+D(s.drift_tb,'?')+' s, '+D(s.drift_ramp,'?')+' s ramp. Green dot = command now; blue tick = A, purple tick = B.';
 }
 function drawSweep(res,breakaway){const c=$('cswp'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height,PADL=34,PADB=18;x.clearRect(0,0,W,H);
@@ -545,8 +547,11 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  if(!s.connected){stx='NO SERIAL';cls='bad'}else if(s.estop){stx='E-STOP';cls='bad'}
  else if(s.tripped){stx='TRIPPED';cls='bad'}
  else if(s.run_mode==='jog'&&s.deadman){stx='DEADMAN';cls='warn'}else if(!s.armed){stx='DISARMED';cls='warn'}
+ else if(s.stopped){stx='STOPPED';cls='warn'}
  else if(s.applied!=0){stx='RUNNING';cls='ok'}else{stx='ARMED · 0';cls='ok'}
  $('st2').textContent=stx;$('st2').className='pill '+cls;   // status lives only in the always-visible top bar
+ if(rmode==='hold'||rmode==='creep'){var em=+$('effsl').value;   // effort readout reflects the soft-stop
+  $('effval').textContent=s.stopped?'■ STOPPED':(em===0?'0%':(em+'% '+(effDir>0?'fwd':'rev')));}
  if(!capSynced&&s.cap!=null){capSynced=true;$('cap').value=toPct(s.cap);applyCap();}  // reflect the enforced cap from init
  var cp=capPct();                                          // speed-cap feedback
  $('caphint').textContent=(cp>0&&Math.abs(toPct(s.applied))>=cp)?('⚠ at speed cap ('+cp+'%) — raise the cap above to go faster'):'';

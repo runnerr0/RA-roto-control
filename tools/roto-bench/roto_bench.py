@@ -89,6 +89,7 @@ class State:
         self.target = 0.0
         self.applied = 0.0
         self.cap = cap
+        self.stopped = False             # soft-stop latch: forces output to 0 in every mode until a new command
         self.armed = False
         self.estop = False
         self.mode = "momentary"          # derived report: momentary | latched
@@ -167,7 +168,8 @@ class State:
                 live_lim = AMP_LIMIT
             return {
                 "target": self.target, "applied": round(self.applied), "cap": self.cap,
-                "armed": self.armed, "estop": self.estop, "mode": self.mode, "intent": self.intent,
+                "armed": self.armed, "estop": self.estop, "stopped": self.stopped,
+                "mode": self.mode, "intent": self.intent,
                 "run_mode": self.run_mode,
                 "drift_a": self.drift_a, "drift_ta": self.drift_ta, "drift_b": self.drift_b,
                 "drift_tb": self.drift_tb, "drift_ramp": self.drift_ramp, "drift_phase": self.drift_phase,
@@ -473,6 +475,7 @@ class Worker(threading.Thread):
                 now = time.monotonic()
                 with self.state.lock:
                     target, cap = self.state.target, self.state.cap
+                    stopped = self.state.stopped
                     run_mode = self.state.run_mode
                     drift_a, drift_ta = self.state.drift_a, self.state.drift_ta
                     drift_b, drift_tb, drift_ramp = self.state.drift_b, self.state.drift_tb, self.state.drift_ramp
@@ -570,6 +573,8 @@ class Worker(threading.Thread):
                 else:
                     src = target
                 prev_mode = run_mode
+                if stopped:                              # soft-stop latch overrides every mode (incl. DRIFT)
+                    src = 0.0
                 # CREEP anti-stiction kick: brief breakaway boost when starting from a stop
                 if run_mode == "creep" and armed and not (estop or tripped) and abs(src) > 0:
                     if kick_start is None and abs(applied) < 1:
@@ -940,6 +945,12 @@ class Handler(BaseHTTPRequestHandler):
         elif u.path == "/api/set":
             with st.lock:
                 st.target = clamp(self._num(q, "g", 0), -1000, 1000)
+                st.stopped = False                       # a fresh command releases the soft-stop latch
+            self._json({"ok": True})
+        elif u.path == "/api/stop":                      # soft stop: halt every mode (incl. DRIFT), stay armed
+            with st.lock:
+                st.stopped = True
+                st.target = 0.0
             self._json({"ok": True})
         elif u.path == "/api/arm":
             on = q.get("on", ["0"])[0] == "1"
@@ -950,6 +961,8 @@ class Handler(BaseHTTPRequestHandler):
             m = q.get("m", ["jog"])[0]
             with st.lock:
                 st.run_mode = m if m in ("jog", "cruise", "drift", "hold", "creep") else "jog"
+                if st.run_mode == "drift":               # DRIFT is an animation: start halted, wait for Run
+                    st.stopped = True
             self._json({"ok": True})
         elif u.path == "/api/creep":
             with st.lock:
@@ -969,6 +982,7 @@ class Handler(BaseHTTPRequestHandler):
                 st.drift_ta = clamp(self._num(q, "ta", st.drift_ta), 0.1, 600)
                 st.drift_tb = clamp(self._num(q, "tb", st.drift_tb), 0.1, 600)
                 st.drift_ramp = clamp(self._num(q, "ramp", st.drift_ramp), 0, 60)
+                st.stopped = False                       # Run drift: apply the pattern and start/resume it
             self._json({"ok": True})
         elif u.path == "/api/reapply":
             with st.lock:
