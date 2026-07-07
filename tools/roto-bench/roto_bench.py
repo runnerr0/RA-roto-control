@@ -111,6 +111,7 @@ class State:
         self.logging = False             # characterization CSV logging on/off
         self.log_name = ""
         self.log_rows = 0
+        self.events = []                 # event lines to drop into the log (tests, config changes)
         self.tripped = False
         self.trip_reason = ""
         self.trip_amps = TRIP_AMPS_DEFAULT
@@ -155,6 +156,12 @@ class State:
 
     def snapshot(self):
         with self.lock:
+            try:                                 # report the ACTUAL controller ALIM as the limit
+                live_lim = float(self.mon.get("ALIM 1") or self.profile.get("ALIM") or 0) / 10.0
+            except (TypeError, ValueError):
+                live_lim = 0.0
+            if live_lim <= 0:
+                live_lim = AMP_LIMIT
             return {
                 "target": self.target, "applied": round(self.applied), "cap": self.cap,
                 "armed": self.armed, "estop": self.estop, "mode": self.mode, "intent": self.intent,
@@ -169,7 +176,7 @@ class State:
                 "tripped": self.tripped, "trip_reason": self.trip_reason,
                 "trip_amps": self.trip_amps, "trip_ms": self.trip_ms,
                 "temp_trip": self.temp_trip, "heat_budget": self.heat_budget,
-                "heat_now": round(self.heat_now, 1), "amp_limit": AMP_LIMIT,
+                "heat_now": round(self.heat_now, 1), "amp_limit": round(live_lim, 1),
                 "connected": self.connected, "deadman": self.deadman,
                 "tele": dict(self.tele), "profile": dict(self.profile),
                 "config_log": list(self.config_log[:8]),
@@ -187,6 +194,11 @@ class State:
                 "lift_results": list(self.lift_results), "lift_alim_cur": self.lift_alim_cur,
                 "lift_peak_amps": self.lift_peak_amps, "lift_lifted": self.lift_lifted,
             }
+
+    def push_event(self, text):          # queue an event line for the CSV log (append is atomic)
+        self.events.append(text)
+        if len(self.events) > 400:
+            del self.events[:200]
 
 
 def clamp(v, lo, hi):
@@ -365,7 +377,7 @@ class Worker(threading.Thread):
         d.mkdir(exist_ok=True)
         name = "roto-" + time.strftime("%Y%m%d-%H%M%S") + ".csv"
         f = open(d / name, "w")
-        f.write("time,elapsed_s,mode,target,applied,amps,volts,temp,heat,tripped,trip_reason\n")
+        f.write("time,elapsed_s,mode,target,applied,amps,volts,temp,heat,tripped,trip_reason,event\n")
         with self.state.lock:
             self.state.log_name = name
             self.state.log_rows = 0
@@ -412,6 +424,7 @@ class Worker(threading.Thread):
         lift_sum = 0.0
         lift_n = 0
         lift_results = []
+        lift_pinned = False
         backoff_scale = 1.0
         backoff_since = None
         while not self._halt.is_set():
@@ -480,6 +493,7 @@ class Worker(threading.Thread):
                         self.state.trip_reason = trip_reason
                         self.state.armed = False
                     tripped, armed = True, False
+                    self.state.push_event("TRIP: " + trip_reason)
 
                 # --- command gate + slew ----------------------------------- #
                 if run_mode == "drift":                  # auto slow sweep around a center
@@ -528,6 +542,8 @@ class Worker(threading.Thread):
                                 self.state.sweep_active = False
                                 self.state.sweep_progress = 1.0
                                 self.state.sweep_level = 0
+                            self.state.push_event("SWEEP done: breakaway %s, suggested kick %s"
+                                                  % (breakaway, kick))
                             sweep_active = sweep_running = False
                     else:
                         level = sweep_levels[sweep_idx]
@@ -544,6 +560,7 @@ class Worker(threading.Thread):
                             if elapsed >= sweep_dwell:
                                 avg = (sweep_sum / sweep_n) if sweep_n else (amps if amps is not None else 0.0)
                                 sweep_results.append({"cmd": int(level), "amps": round(avg, 2)})
+                                self.state.push_event("SWEEP point: cmd %d -> %.2f A" % (level, avg))
                                 sweep_idx += 1
                                 sweep_phase = "ramp"
                         with self.state.lock:
@@ -567,6 +584,7 @@ class Worker(threading.Thread):
                 elif lift_active:
                     if not lift_running:
                         lift_alim, lift_phase, lift_results = lift_alim_start, "set", []
+                        lift_pinned = False
                         lift_running = True
                         with self.state.lock:
                             self.state.logging = True
@@ -579,6 +597,7 @@ class Worker(threading.Thread):
                             self.state.mon["ALIM 1"] = str(int(lift_alim))
                             self.state.lift_alim_cur = round(lift_alim / 10.0, 1)
                             self.state.lift_status = "testing ALIM %.1f A" % (lift_alim / 10.0)
+                        self.state.push_event("LIFT: set ALIM %.1f A" % (lift_alim / 10.0))
                     elif lift_phase == "settle":
                         if (now - lift_t0) >= 0.4 * lift_dwell:
                             lift_phase, lift_t0, lift_sum, lift_n = "dwell", now, 0.0, 0
@@ -590,22 +609,34 @@ class Worker(threading.Thread):
                             avg = (lift_sum / lift_n) if lift_n else (amps if amps is not None else 0.0)
                             tmax = max(temps) if temps else None
                             alim_a = lift_alim / 10.0
-                            lifted = avg < 0.85 * alim_a       # amps below limit -> it's turning
+                            if avg >= 0.9 * alim_a:            # it actually pinned at the limit (stalled)
+                                lift_pinned = True
+                            # only trust "amps dropped below limit = turning" AFTER it has pinned;
+                            # otherwise low amps just mean the command is too weak to reach the limit.
+                            lifted = lift_pinned and avg < 0.85 * alim_a
                             lift_results.append({"alim": round(alim_a, 1), "amps": round(avg, 2),
-                                                 "temp": tmax, "lifted": lifted})
+                                                 "temp": tmax, "lifted": lifted, "pinned": lift_pinned})
                             with self.state.lock:
                                 self.state.lift_results = list(lift_results)
+                            self.state.push_event("LIFT rung: ALIM %.1f A -> %.1f A%s"
+                                                  % (alim_a, avg, " PINNED" if lift_pinned else ""))
                             if lifted:
                                 lift_end = ("LIFTED at %.1f A — load draws %.1f A" % (alim_a, avg), True, avg)
                             elif tmax is not None and tmax >= lift_temp_limit:
                                 lift_end = ("stopped: %d C >= %.0f C limit" % (tmax, lift_temp_limit), False, None)
                             elif lift_alim + lift_alim_step > lift_alim_max:
-                                lift_end = ("ceiling %.1f A reached, did not lift" % (lift_alim_max / 10.0), False, None)
+                                if lift_pinned:
+                                    lift_end = ("ceiling %.1f A reached, did not lift — load needs more torque"
+                                                % (lift_alim_max / 10.0), False, None)
+                                else:
+                                    lift_end = ("never reached the current limit — raise the HOLD CMD so the "
+                                                "motor pushes to the limit", False, None)
                             else:
                                 lift_alim += lift_alim_step
                                 lift_phase = "set"
                 if lift_end is not None:
                     status, keep_alim, peak = lift_end
+                    self.state.push_event("LIFT end: " + status)
                     if not keep_alim:                          # restore the safe start limit
                         try:
                             self._write_config("ALIM", "1", str(int(lift_alim_start)))
@@ -714,6 +745,9 @@ class Worker(threading.Thread):
                     if cfg_result is not None:
                         self.state.config_log.insert(0, cfg_result)
                         del self.state.config_log[20:]
+                        self.state.push_event("CONFIG %s = %s (%s)" % (
+                            cfg_result["key"], cfg_result["val"],
+                            "ok" if cfg_result.get("ok") else "FAIL"))
                         if cfg_result.get("ok") and not pending.get("flash") and cfg_result["readback"] is not None:
                             self.state.profile[pending["key"]] = cfg_result["readback"]
                             wlabel = pending["key"] + (" " + pending["idx"] if pending.get("idx") else "")
@@ -721,7 +755,7 @@ class Worker(threading.Thread):
                                 self.state.expected[wlabel] = cfg_result["readback"]
                                 self.state.mon[wlabel] = cfg_result["readback"]
 
-                # --- characterization logging (~5 Hz CSV) ------------------ #
+                # --- characterization logging (~5 Hz telemetry + events) --- #
                 if do_log and logf is None:
                     logf, log_t0, log_tick = self._open_log(), now, 0
                 elif not do_log and logf is not None:
@@ -729,21 +763,33 @@ class Worker(threading.Thread):
                     logf = None
                 if logf is not None:
                     log_tick += 1
-                    if log_tick % 3 == 0:
-                        with self.state.lock:
-                            v = self.state.tele.get("volts_batt")
-                            tl = self.state.tele.get("temp") or []
-                            reason = self.state.trip_reason
-                        row = [time.strftime("%H:%M:%S"), "%.2f" % (now - log_t0), run_mode,
-                               int(round(target)), int(round(applied)),
-                               ("%.1f" % amps) if amps is not None else "",
-                               ("%.1f" % v) if v is not None else "",
-                               (max(tl) if tl else ""), "%.0f" % heat_now,
-                               1 if tripped else 0, reason.replace(",", ";")]
-                        logf.write(",".join(str(c) for c in row) + "\n")
+                    with self.state.lock:
+                        v = self.state.tele.get("volts_batt")
+                        tl = self.state.tele.get("temp") or []
+                        reason = self.state.trip_reason
+                        evs = self.state.events
+                        self.state.events = []
+                    base = [time.strftime("%H:%M:%S"), "%.2f" % (now - log_t0), run_mode,
+                            int(round(target)), int(round(applied)),
+                            ("%.1f" % amps) if amps is not None else "",
+                            ("%.1f" % v) if v is not None else "",
+                            (max(tl) if tl else ""), "%.0f" % heat_now,
+                            1 if tripped else 0, reason.replace(",", ";")]
+                    prefix = ",".join(str(c) for c in base)
+                    n = 0
+                    for e in evs:                        # event rows: telemetry context + the event
+                        logf.write(prefix + "," + str(e).replace(",", ";") + "\n")
+                        n += 1
+                    if log_tick % 3 == 0:                # periodic telemetry row (~5 Hz)
+                        logf.write(prefix + ",\n")
+                        n += 1
+                    if n:
                         logf.flush()
                         with self.state.lock:
-                            self.state.log_rows += 1
+                            self.state.log_rows += n
+                elif self.state.events:                  # not logging -> discard
+                    with self.state.lock:
+                        self.state.events = []
 
                 time.sleep(CMD_PERIOD)
             except Exception as exc:
@@ -855,6 +901,7 @@ class Handler(BaseHTTPRequestHandler):
                 st.estop = True
                 st.armed = False
                 st.target = 0.0
+            st.push_event("E-STOP pressed")
             self._json({"ok": True})
         elif u.path == "/api/clear":
             with st.lock:
@@ -920,6 +967,8 @@ class Handler(BaseHTTPRequestHandler):
                     st.sweep_results = []
                     st.sweep_breakaway = st.sweep_kick = None
                     st.sweep_progress = 0.0
+                    st.push_event("SWEEP START: step %d, max %d, dir %s"
+                                  % (st.sweep_step, st.sweep_max, st.sweep_dir))
                 else:
                     st.sweep_active = False
                     st.sweep_status = "aborted"
@@ -940,9 +989,13 @@ class Handler(BaseHTTPRequestHandler):
                     st.lift_results = []
                     st.lift_peak_amps = None
                     st.lift_lifted = False
+                    st.push_event("LIFT START: %.1f-%.1f A step %.1f, hold %d, dwell %.1fs"
+                                  % (st.lift_alim_start / 10.0, st.lift_alim_max / 10.0,
+                                     st.lift_alim_step / 10.0, st.lift_cmd, st.lift_dwell))
                 else:
                     st.lift_active = False
                     st.lift_status = "aborted"
+                    st.push_event("LIFT aborted by operator")
             self._json({"ok": True})
         elif u.path == "/api/preset_save":
             name = q.get("name", [""])[0].strip()
