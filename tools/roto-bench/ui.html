@@ -44,7 +44,8 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 #gate{color:#f85149;text-align:center;font-size:13px;font-weight:700;min-height:17px;margin:2px 0}
 .topbar{position:fixed;top:0;left:0;right:0;z-index:100;background:#0d1117;border-bottom:1px solid #30363d;padding:9px 18px;box-shadow:0 2px 8px #0008}
 .topbar-main{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.topbar .estop{flex:0 0 auto;font-size:16px;padding:9px 16px}
+.topbar .estop{margin-left:auto;flex:0 0 auto;font-size:17px;font-weight:800;padding:10px 22px}
+.topbar .arm,.topbar .clr{font-size:13px;padding:8px 12px}
 .barlive{font:600 13px ui-monospace,monospace;color:#c9d1d9;white-space:nowrap}
 .barlive b{color:#58a6ff}
 .barbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:8px 12px;font-size:13px}
@@ -66,9 +67,13 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class=topbar-main>
   <span id=st2 class="pill warn" title="Live console status: serial link, arm/e-stop/trip state, and whether the motor is running.">…</span>
   <span class=barlive title="Live motor current and the command currently applied to the motor."><span id=bar_amps>—</span> · cmd <b id=bar_cmd>0</b></span>
-  <button class=estop id=es title="Emergency stop: instantly commands 0 and latches E-STOP. Always reachable. Clear E-Stop, then ARM, to resume.">■ E-STOP</button>
+  <button id=arm class="arm off" title="Enable motion. Nothing moves until ARMED.">DISARMED</button>
+  <button id=zero class=clr title="Command 0 without disarming (does not exit the run mode).">Stop</button>
+  <button id=clr class=clr title="Clear the E-Stop latch so you can ARM again." style="display:none">Clear E-Stop</button>
+  <button id=rtrip class=clr title="Clear the trip/fault so you can ARM again — fix the cause first." style="display:none">Reset Trip</button>
   <button class=barbtn id=helptog title="Toggle hover-help: when on, point at any control to see what it does in the strip below.">? Help</button>
   <button class=barbtn id=guidebtn title="Open the full operator guide in a new browser tab.">Guide</button>
+  <button class=estop id=es title="Emergency stop: instantly commands 0 and latches E-STOP. Always in this corner. Clear E-Stop, then ARM, to resume.">■ E-STOP</button>
  </div>
  <div class=helpstrip id=helpstrip style="display:none"></div>
 </div>
@@ -78,7 +83,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 <div class=card id=tripcard style="display:none;border-color:#da3633">
  <b style="color:#f85149">⚠ TRIP — motor stopped &amp; disarmed</b>
  <div id=tripreason class=sub></div>
- <div class=row style="margin-top:10px"><button class=zero id=rtrip title="Clear the trip/fault so you can ARM again — fix the cause first.">RESET TRIP</button></div>
+ <div class=sub style="margin-top:6px">Fix the cause, then press <b>Reset Trip</b> in the top bar to ARM again.</div>
 </div>
 
 <div class=card><div class="row spread"><b>Motion &amp; load <span class=q title="Open-loop: commanded motion is the speed proxy; current is the load/effort.">?</span></b>
@@ -142,11 +147,6 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <button id=cset class=clr>Apply</button>
  </div>
 
- <div class=row style="margin-top:10px">
-  <button id=arm class="arm off" title="Enable motion. Nothing moves until ARMED.">DISARMED</button>
-  <button id=zero class=clr title="Command 0 without disarming (does not exit the run mode).">Stop</button>
-  <button id=clr class=clr>Clear E-Stop</button>
- </div>
  <div class=hint id=hint>—</div>
 </div>
 
@@ -489,6 +489,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  const a=$('arm');a.textContent=s.armed?'ARMED':'DISARMED';a.className='arm'+(s.armed?'':' off');
  if(s.run_mode==='drift')$('cmd').textContent=s.applied; // reflect drift
  $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
+ $('clr').style.display=s.estop?'':'none';$('rtrip').style.display=s.tripped?'':'none';   // recovery buttons appear only when relevant
  $('botag').textContent=s.backoff_active?('⤵ OVERTORQUE — command relieved to '+Math.round((s.backoff_scale!=null?s.backoff_scale:1)*100)+'% to avoid breaking free'):'';
  hint(s);
  let g='';
