@@ -927,10 +927,11 @@ class Handler(BaseHTTPRequestHandler):
         with st.lock:
             st.last_contact = time.monotonic()
 
-        if u.path in ("/", "/guide", "/graphs", "/stats"):
+        if u.path in ("/", "/guide", "/graphs", "/stats", "/remote"):
             here = Path(__file__).parent
             fn = {"/": UI_FILE, "/guide": here / "guide.html",
-                  "/graphs": here / "graphs.html", "/stats": here / "stats.html"}[u.path]
+                  "/graphs": here / "graphs.html", "/stats": here / "stats.html",
+                  "/remote": here / "remote.html"}[u.path]
             try:
                 body = fn.read_bytes()
             except OSError:
@@ -1137,6 +1138,19 @@ def discover_port(explicit):
     sys.exit("No serial port found. Plug in the HDC2450 or pass --port.")
 
 
+def lan_ip():
+    """Best-effort local LAN IP for the printed phone/tablet URL."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))          # no packets sent; just selects the outbound interface
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
 def main():
     ap = argparse.ArgumentParser(description="HDC2450 bench/run control console.")
     ap.add_argument("--port", help="serial port (auto-detect if omitted)")
@@ -1144,7 +1158,14 @@ def main():
     ap.add_argument("--sim", action="store_true",
                     help="preview mode: run the UI with fake telemetry, no hardware")
     ap.add_argument("--webport", type=int, default=PORT, help="HTTP port (default %d)" % PORT)
+    ap.add_argument("--host", default=HOST,
+                    help="bind address. Use 0.0.0.0 to reach the console from a phone/tablet on the LAN "
+                         "(default %s = this machine only)" % HOST)
+    ap.add_argument("--lan", action="store_true",
+                    help="shortcut for --host 0.0.0.0 (expose to the local network)")
     args = ap.parse_args()
+    if args.lan:
+        args.host = "0.0.0.0"
     if serial is None and not args.sim:
         sys.exit("pyserial not installed:  pip install pyserial")
 
@@ -1162,11 +1183,13 @@ def main():
     worker.start()
 
     Handler.state = state
-    httpd = ThreadingHTTPServer((HOST, args.webport), Handler)
+    httpd = ThreadingHTTPServer((args.host, args.webport), Handler)
     print("=" * 60)
     print("  RA Roto — control console" + ("  [SIM PREVIEW — fake data, no hardware]" if args.sim else ""))
     print(f"  serial : {port} @ {BAUD}")
-    print(f"  web UI : http://{HOST}:{args.webport}")
+    print(f"  web UI : http://127.0.0.1:{args.webport}")
+    if args.host not in ("127.0.0.1", "localhost"):
+        print(f"  phone  : http://{lan_ip()}:{args.webport}/remote   (this machine on the LAN)")
     print(f"  trips  : stall {TRIP_AMPS_DEFAULT}A/{TRIP_MS_DEFAULT}ms (RUN) · "
           f"temp {TEMP_TRIP_DEFAULT:.0f}C · I2t {HEAT_BUDGET_DEFAULT:.0f}")
     print("  safety : DISARMED at start · power the motor from a current-limited supply")

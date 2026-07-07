@@ -296,6 +296,13 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
     <button id=reapply class=zero title="Restore ALIM/RWD/AINA to the safe baseline — fixes control drift after a reset.">Re-apply safe profile</button>
     <button id=flash class=clr title="Persist current RAM values to controller flash so they survive a power cycle.">Save to flash</button>
    </div>
+   <div class=row style="margin-top:10px;border-top:1px solid #21262d;padding-top:10px">
+    <span class=sub title="Snapshot the controller's CURRENT settings as a restore point, and write them back with one tap — instant recovery if the config drifts or a power cycle reverts it. Backup also downloads a .json you can reload later.">Config snapshot:</span>
+    <button id=cfgbackup class=zero title="Capture the controller's current config as a restore point and download a .json backup.">⬇ Backup now</button>
+    <button id=cfgrestore class=clr title="Write the last backup back to the controller.">⬆ Restore</button>
+    <label class=clr style="border-radius:8px;padding:12px 16px;cursor:pointer;font:600 15px system-ui" title="Restore from a previously downloaded .json backup file.">Load file<input id=cfgfile type=file accept=".json,application/json" style="display:none"></label>
+   </div>
+   <div id=cfgnote class=sub style="margin-top:6px">no backup yet</div>
    <div id=cfglog class=sub style="margin-top:8px;font-family:ui-monospace,monospace;white-space:pre-wrap"></div>
   </details>
  </div>
@@ -398,6 +405,26 @@ $('rtrip').onclick=()=>api('/api/resettrip');
 $('flash').onclick=()=>api('/api/config_flash');
 $('reapply').onclick=()=>api('/api/reapply');
 $('aclear').onclick=()=>{$('alog').innerHTML=''};
+// ---- config snapshot: backup / restore (client-side, uses PROF for key+idx) ----
+let cfgBackup=null,cfgBackupTime='';
+function cfgNote(msg){$('cfgnote').textContent=msg||(cfgBackup?('backup: '+Object.keys(cfgBackup).length+' params @ '+cfgBackupTime):'no backup yet')}
+function pad2(n){return ('0'+n).slice(-2)}
+$('cfgbackup').onclick=()=>{if(!S||!S.profile){cfgNote('no controller config read yet');return}
+ var cfg={};PROF.forEach(r=>{var v=S.profile[r[0]];if(v!=null&&v!=='—')cfg[r[0]]={idx:r[1]||'',val:v}});
+ cfgBackup=cfg;var d=new Date();cfgBackupTime=pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds());
+ var stamp=d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+'-'+pad2(d.getHours())+pad2(d.getMinutes());
+ var data=JSON.stringify({saved:cfgBackupTime,config:cfg},null,1);
+ var a=document.createElement('a');a.download='roto-config-'+stamp+'.json';a.href='data:application/json,'+encodeURIComponent(data);a.click();
+ cfgNote()};
+function cfgApply(cfg){var n=0;for(var k in cfg){if(cfg.hasOwnProperty(k)){var e=cfg[k];
+ api('/api/config?key='+k+(e.idx?'&idx='+e.idx:'')+'&val='+e.val);n++}}cfgNote('restoring '+n+' params → check the log below')}
+$('cfgrestore').onclick=()=>{if(!cfgBackup){cfgNote('nothing to restore — Backup now, or Load file');return}cfgApply(cfgBackup)};
+$('cfgfile').onchange=e=>{var f=e.target.files[0];if(!f)return;var rd=new FileReader();
+ rd.onload=()=>{try{var o=JSON.parse(rd.result);cfgBackup=(o&&o.config)?o.config:o;cfgBackupTime='(file)';cfgApply(cfgBackup)}catch(err){cfgNote('could not read that file')}};rd.readAsText(f)};
+// ---- spacebar = E-STOP (unless typing in a field) ----
+document.addEventListener('keydown',e=>{var tg=(e.target&&e.target.tagName)||'';
+ if(tg==='INPUT'||tg==='TEXTAREA'||tg==='SELECT')return;
+ if(e.keyCode===32||e.key===' '||e.code==='Space'){e.preventDefault();$('es').click()}});
 $('cset').onclick=()=>api('/api/creep?kick='+toRaw($('ckick').value)+'&ms='+$('ckms').value);
 $('logbtn').onclick=()=>api('/api/log?on='+((S&&S.logging)?0:1)+'&div='+$('lograte').value);
 

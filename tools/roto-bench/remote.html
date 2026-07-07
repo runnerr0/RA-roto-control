@@ -1,0 +1,99 @@
+<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>RA Roto — Remote</title><style>
+*{box-sizing:border-box}
+body{font:16px/1.4 system-ui,sans-serif;margin:0;background:#0d1117;color:#c9d1d9;-webkit-text-size-adjust:100%}
+.wrap{max-width:520px;margin:0 auto;padding:12px}
+.hdr{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+h1{font-size:16px;margin:0;flex:1}
+.pill{display:inline-block;padding:5px 12px;border-radius:20px;font-size:14px;font-weight:800}
+.ok{background:#1a3d1f;color:#3fb950}.bad{background:#3d1a1a;color:#f85149}.warn{background:#3d331a;color:#d29922}
+.mode{color:#8b949e;font-size:13px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.tile{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:12px 14px}
+.tile.hot{border-color:#d29922}.tile.crit{border-color:#f85149}
+.tile .k{font-size:12px;color:#8b949e}
+.tile .v{font:800 30px ui-monospace,monospace;margin-top:2px;line-height:1}
+button{width:100%;border:0;border-radius:14px;color:#fff;font:800 20px system-ui;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.estop{background:#da3633;min-height:110px;font-size:30px;letter-spacing:1px;margin-bottom:12px;box-shadow:0 4px 0 #8f1f1d}
+.estop:active{transform:translateY(3px);box-shadow:0 1px 0 #8f1f1d}
+.row{display:flex;gap:10px;margin-bottom:10px}
+.row button{min-height:64px;font-size:18px}
+.arm{background:#30363d}.arm.on{background:#238636}
+.stop{background:#1f2937;border:1px solid #30363d}
+.clr{background:#1f6feb}
+.banner{padding:12px 14px;border-radius:12px;font-weight:800;font-size:16px;display:none;margin-bottom:10px}
+.banner.crit{display:block;background:#3d1a1a;color:#f85149;border:1px solid #f8514966}
+.banner.wrn{display:block;background:#3d331a;color:#d29922;border:1px solid #d2992266}
+.foot{color:#8b949e;font-size:12px;text-align:center;margin-top:8px}
+.off-note{color:#f85149}
+</style></head><body><div class=wrap>
+<div class=hdr>
+ <h1>RA Roto — Remote</h1>
+ <span id=st class="pill warn">…</span>
+ <span id=mode class=mode></span>
+</div>
+<div class=banner id=banner></div>
+<div class=grid>
+ <div class=tile><div class=k>Command</div><div class=v id=cmd>—</div></div>
+ <div class=tile id=ampsTile><div class=k>Motor current</div><div class=v id=amps>—</div></div>
+ <div class=tile id=tempTile><div class=k>Temp</div><div class=v id=temp>—</div></div>
+ <div class=tile><div class=k>Supply</div><div class=v id=volts>—</div></div>
+</div>
+<button id=es class=estop>■ E-STOP</button>
+<div class=row>
+ <button id=arm class=arm>ARM</button>
+ <button id=stop class=stop>■ STOP</button>
+</div>
+<div class=row>
+ <button id=clr class=clr style="display:none">Clear E-Stop</button>
+ <button id=rtrip class=clr style="display:none">Reset Trip</button>
+</div>
+<div class=foot id=foot>connecting…</div>
+</div>
+<script>
+function $(i){return document.getElementById(i)}
+function D(v,f){return (v===null||v===undefined)?f:v}
+function api(path){var x=new XMLHttpRequest();x.open('GET',path);x.send()}
+$('es').onclick=function(){api('/api/estop')};
+$('stop').onclick=function(){api('/api/stop')};
+$('clr').onclick=function(){api('/api/clear')};
+$('rtrip').onclick=function(){api('/api/resettrip')};
+var S=null;
+$('arm').onclick=function(){api('/api/arm?on='+((S&&S.armed)?0:1))};
+function pct(r){return Math.round(D(r,0)/10)}
+function poll(){var x=new XMLHttpRequest();x.open('GET','/api/state');x.onreadystatechange=function(){
+ if(x.readyState!==4)return;
+ if(x.status!==200){$('foot').innerHTML='<span class=off-note>⚠ no connection to the console</span>';return}
+ var s;try{s=JSON.parse(x.responseText)}catch(e){return} S=s; render(s);
+ $('foot').textContent='live · '+(s.connected?'serial ok':'no serial link');
+};x.send()}
+function render(s){
+ var t=s.tele||{},tl=t.temp||[],tmax=tl.length?Math.max.apply(null,tl):null,lim=D(s.amp_limit,5);
+ var stp=$('st');
+ if(s.estop){stp.className='pill bad';stp.textContent='E-STOP'}
+ else if(s.tripped){stp.className='pill bad';stp.textContent='TRIPPED'}
+ else if(!s.connected){stp.className='pill warn';stp.textContent='NO LINK'}
+ else if(!s.armed){stp.className='pill warn';stp.textContent='DISARMED'}
+ else if(s.stopped){stp.className='pill warn';stp.textContent='STOPPED'}
+ else if(s.applied!=0){stp.className='pill ok';stp.textContent='RUNNING'}
+ else{stp.className='pill ok';stp.textContent='ARMED'}
+ $('mode').textContent=s.run_mode?('mode '+s.run_mode.toUpperCase()):'';
+ var b=$('banner');
+ if(s.tripped){b.className='banner crit';b.textContent='⚠ TRIP — '+D(s.trip_reason,'stopped')}
+ else if(s.estop){b.className='banner crit';b.textContent='■ E-STOP engaged'}
+ else if(t.at_limit){b.className='banner wrn';b.textContent='● at current limit ('+lim.toFixed(1)+' A)'}
+ else{b.className='banner';b.textContent=''}
+ $('cmd').textContent=pct(s.applied)+'%';
+ $('amps').textContent=(t.amps_m1!=null)?t.amps_m1.toFixed(1)+' A':'—';
+ $('temp').textContent=(tmax!=null)?tmax+' °C':'—';
+ $('volts').textContent=(t.volts_batt!=null)?t.volts_batt.toFixed(1)+' V':'—';
+ $('ampsTile').className='tile'+((t.amps_m1!=null&&Math.abs(t.amps_m1)>=lim*0.98)?' crit':(t.amps_m1!=null&&Math.abs(t.amps_m1)>=lim*0.8?' hot':''));
+ $('tempTile').className='tile'+((tmax!=null&&tmax>=D(s.temp_trip,70))?' crit':(tmax!=null&&tmax>=D(s.temp_trip,70)-15?' hot':''));
+ $('arm').className='arm'+(s.armed?' on':'');
+ $('arm').textContent=s.armed?'ARMED — tap to disarm':'ARM';
+ $('clr').style.display=s.estop?'block':'none';
+ $('rtrip').style.display=s.tripped?'block':'none';
+}
+setInterval(poll,250);poll();
+</script></body></html>
