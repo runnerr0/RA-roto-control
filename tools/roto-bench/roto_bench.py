@@ -919,10 +919,10 @@ class Handler(BaseHTTPRequestHandler):
         with st.lock:
             st.last_contact = time.monotonic()
 
-        if u.path in ("/", "/guide", "/graphs"):
+        if u.path in ("/", "/guide", "/graphs", "/stats"):
             here = Path(__file__).parent
             fn = {"/": UI_FILE, "/guide": here / "guide.html",
-                  "/graphs": here / "graphs.html"}[u.path]
+                  "/graphs": here / "graphs.html", "/stats": here / "stats.html"}[u.path]
             try:
                 body = fn.read_bytes()
             except OSError:

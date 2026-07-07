@@ -194,7 +194,9 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   </div>
  </div>
 
- <div class=card><b>Controller health</b><table id=tele></table></div>
+ <div class=card><div class="row spread"><b>Controller health</b>
+   <button class=barbtn id=popstats title="Open the live stats in a separate window — drag it to a second screen to monitor while you drive.">⧉ Pop out</button></div>
+   <table id=tele></table></div>
 
  <div class=card><div class="row spread"><b>Characterization log</b>
    <span><span class=sub>rate</span> <select id=lograte class=cap title="Sampling rate. Aggressive (15 Hz) for fine tuning; motor amps update every tick, slower telemetry at its own rate."><option value=3>5 Hz</option><option value=1>15 Hz (aggressive)</option></select>
@@ -337,6 +339,7 @@ $('dApply').onclick=()=>api('/api/drift?a='+$('dA_spd').value+'&ta='+$('dA_t').v
 // ---- top bar: guide + help mode ----
 $('guidebtn').onclick=()=>window.open('/guide','_blank');
 $('popgraph').onclick=()=>window.open('/graphs','roto_graphs','width=900,height=800');
+$('popstats').onclick=()=>window.open('/stats','roto_stats','width=760,height=760');
 let helpMode=false;
 function findHelp(el){while(el&&el!==document.body){if(el.getAttribute){const h=el.getAttribute('data-help')||el.getAttribute('title');if(h)return h}el=el.parentNode}return ''}
 $('helptog').onclick=()=>{helpMode=!helpMode;$('helptog').className='barbtn'+(helpMode?' on':'');

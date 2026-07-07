@@ -1,0 +1,93 @@
+<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>RA Roto — Live Stats</title><style>
+body{font:14px/1.4 system-ui,sans-serif;margin:0;background:#0d1117;color:#c9d1d9}
+.wrap{padding:14px}
+.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:18px;margin:0}
+.pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700}
+.ok{background:#1a3d1f;color:#3fb950}.bad{background:#3d1a1a;color:#f85149}.warn{background:#3d331a;color:#d29922}
+button{font:600 14px system-ui;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;color:#fff}
+.estop{background:#da3633}
+.banner{padding:12px 16px;border-radius:10px;margin-bottom:12px;font-weight:700;font-size:18px;display:none}
+.banner.crit{display:block;background:#3d1a1a;color:#f85149;border:1px solid #f8514966}
+.banner.wrn{display:block;background:#3d331a;color:#d29922;border:1px solid #d2992266}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px 14px}
+.stat.hot{border-color:#d29922;background:#1c1808}.stat.crit{border-color:#f85149;background:#1c0d0d}
+.stat .k{font-size:12px;color:#8b949e}
+.stat .v{font:700 40px ui-monospace,monospace;margin-top:2px;line-height:1}
+.stat .u{font-size:15px;color:#8b949e}
+.stat .sub{font-size:11px;color:#8b949e;margin-top:4px;min-height:13px}
+.wide{grid-column:1/-1}
+.wide .v{font-size:22px}
+.tag{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:700}
+.tag.r{background:#3d1a1a;color:#f85149}.tag.g{background:#1a3d1f;color:#3fb950}.tag.y{background:#3d331a;color:#d29922}
+</style></head><body><div class=wrap>
+<div class=bar>
+ <h1>RA Roto — Live Stats</h1>
+ <span id=st class="pill warn">…</span>
+ <span id=mode class=k style="color:#8b949e"></span>
+ <span style="flex:1"></span>
+ <button class=estop id=es>■ E-STOP</button>
+</div>
+<div class=banner id=banner></div>
+<div class=grid id=grid></div>
+</div>
+<script>
+function $(i){return document.getElementById(i)}
+function D(v,f){return (v===null||v===undefined)?f:v}
+function api(path,cb){var x=new XMLHttpRequest();x.open('GET',path);x.onreadystatechange=function(){
+ if(x.readyState===4&&x.status===200){try{cb&&cb(JSON.parse(x.responseText))}catch(e){}}};x.send()}
+$('es').onclick=function(){api('/api/estop')};
+function n1(v){return v==null?'—':(Math.round(v*10)/10).toFixed(1)}
+function tile(k,v,unit,sub,cls){return '<div class="stat'+(cls?' '+cls:'')+'"><div class=k>'+k+'</div>'
+ +'<div class=v>'+v+(unit?' <span class=u>'+unit+'</span>':'')+'</div><div class=sub>'+(sub||'')+'</div></div>'}
+function poll(){api('/api/state',function(s){
+ var t=s.tele,tl=t.temp||[],tmax=tl.length?Math.max.apply(null,tl):null,lim=D(s.amp_limit,5);
+ var amps=t.amps_m1,ba=t.batt_amps,pw=t.power,mc=t.mcmd,sp=t.speed;
+ // status pill
+ var stp=$('st');
+ if(s.estop){stp.className='pill bad';stp.textContent='E-STOP'}
+ else if(s.tripped){stp.className='pill bad';stp.textContent='TRIPPED'}
+ else if(!s.connected){stp.className='pill warn';stp.textContent='NO LINK'}
+ else if(s.armed){stp.className='pill ok';stp.textContent=(Math.abs(D(s.applied,0))>0?'RUNNING':'ARMED')}
+ else{stp.className='pill warn';stp.textContent='DISARMED'}
+ $('mode').textContent=s.run_mode?('mode '+s.run_mode.toUpperCase()):'';
+ // banner
+ var b=$('banner');
+ if(s.tripped){b.className='banner crit';b.textContent='⚠ TRIP — '+D(s.trip_reason,'stopped')}
+ else if(s.estop){b.className='banner crit';b.textContent='■ E-STOP engaged — clear to resume'}
+ else if(t.at_limit){b.className='banner wrn';b.textContent='● AT CURRENT LIMIT ('+n1(lim)+' A) — folding back power'}
+ else{b.className='banner';b.textContent=''}
+ // amps color
+ var ampCls=amps==null?'':(amps>=lim*0.98?'crit':(amps>=lim*0.8?'hot':''));
+ var regen=(ba!=null&&ba<-0.1)?'<span class="tag g">regen</span>':'';
+ // heat
+ var hb=D(s.heat_budget,600),hn=D(s.heat_now,0),hpct=hb>0?Math.round(hn/hb*100):0;
+ var heatCls=hpct>=90?'crit':(hpct>=60?'hot':'');
+ // temp
+ var tempCls=tmax==null?'':(tmax>=D(s.temp_trip,70)?'crit':(tmax>=D(s.temp_trip,70)-15?'hot':''));
+ var tempSub=tl.length?('ch: '+tl.join(' · ')):'';
+ // status + faults
+ var flags=(t.status||[]).join(' · ')||'—';
+ if(t.at_limit)flags+=' · AT-LIMIT';
+ var faults=(t.faults&&t.faults.length)?t.faults.join(' · '):'none';
+ var g='';
+ g+=tile('Command',Math.round(D(s.applied,0)),'/1000','target '+Math.round(D(s.target,0)));
+ g+=tile('Motor current',n1(amps),'A','effort / load'+(t.at_limit?' <span class="tag y">limit</span>':''),ampCls);
+ g+=tile('Supply current',n1(ba),'A','from supply '+regen);
+ g+=tile('Power out',pw==null?'—':Math.round(pw/10),'%','applied duty');
+ g+=tile('Ctrl command',mc==null?'—':Math.round(mc),'/1000','what the controller applies');
+ g+=tile('Speed',sp==null?'0':sp,'rpm',(sp?'':'needs encoder'));
+ g+=tile('Battery',n1(s.tele.volts_batt),'V','supply voltage');
+ g+=tile('5V rail',n1(s.tele.volts_5v),'V','logic supply');
+ g+=tile('Temp',tmax==null?'—':tmax,'°C',tempSub,tempCls);
+ g+=tile('Current limit',n1(lim),'A','ALIM foldback');
+ g+=tile('I²t heat',hpct+'%','','motor-heat budget '+Math.round(hn)+' / '+Math.round(hb),heatCls);
+ g+=tile('Status',flags,'',(s.armed?'armed':'disarmed')+(s.connected?'':' · no link'),'wide');
+ g+=tile('Faults',faults,'','',faults==='none'?'wide':'wide crit');
+ $('grid').innerHTML=g;
+})}
+setInterval(poll,200);poll();
+</script></body></html>
