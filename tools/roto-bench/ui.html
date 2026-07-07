@@ -75,7 +75,6 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <span id=st2 class="pill warn" title="Live console status: serial link, arm/e-stop/trip state, and whether the motor is running.">…</span>
   <span class=barlive title="Live motor current and the command currently applied to the motor."><span id=bar_amps>—</span> · cmd <b id=bar_cmd>0</b></span>
   <button id=arm class="arm off" title="Enable motion. Nothing moves until ARMED.">DISARMED</button>
-  <button id=zero class=clr title="Command 0 without disarming (does not exit the run mode).">Stop</button>
   <button id=clr class=clr title="Clear the E-Stop latch so you can ARM again." style="display:none">Clear E-Stop</button>
   <button id=rtrip class=clr title="Clear the trip/fault so you can ARM again — fix the cause first." style="display:none">Reset Trip</button>
   <button class=barbtn id=helptog title="Toggle hover-help: when on, point at any control to see what it does in the strip below.">? Help</button>
@@ -122,6 +121,10 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <input id=sl class=birange type=range min=-100 max=100 value=0 step=1 title="Speed slider — center = stop; drag right = forward, left = reverse (%). In JOG, release to stop.">
   <span class=slmid></span>
   <div class=sllbl><span>◀ reverse</span><span>stop</span><span>forward ▶</span></div>
+ </div>
+
+ <div class=row style="margin-top:10px">
+  <button id=zero class=clr title="Bring the motor to a stop (command 0) without disarming — stays in this mode, ready to drive again.">■ Stop</button>
  </div>
 
  <div class=row id=speedbox style="margin-top:10px;display:none">
