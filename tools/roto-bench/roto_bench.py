@@ -94,10 +94,13 @@ class State:
         self.mode = "momentary"          # derived report: momentary | latched
         self.intent = "run"              # derived report: run | hold
         self.run_mode = "jog"            # jog | cruise | drift | hold
-        self.osc_amp = 150.0             # DRIFT amplitude (command units)
-        self.osc_period = 20.0           # DRIFT period (seconds)
-        self.osc_center = 0.0            # DRIFT center/bias (command units)
-        self.osc_wave = "sine"           # sine | triangle | saw
+        # DRIFT: two-phase — hold speed A for time A, ramp to B, hold B for time B, ramp back
+        self.drift_a = 200.0             # Side A speed (command units)
+        self.drift_ta = 10.0             # Side A hold time (s)
+        self.drift_b = -200.0            # Side B speed
+        self.drift_tb = 10.0             # Side B hold time (s)
+        self.drift_ramp = 2.0            # ramp time between sides (s)
+        self.drift_phase = "holdA"       # live phase (for the UI instrument)
         self.expected = {"ALIM 1": "50", "RWD": "500", "AINA 3": "0", "AINA 4": "0"}
         self.mon = {}                    # live values of the drift-watched params
         # --- overtorque backoff: relieve command when pinned at the current limit --- #
@@ -166,8 +169,9 @@ class State:
             return {
                 "target": self.target, "applied": round(self.applied), "cap": self.cap,
                 "armed": self.armed, "estop": self.estop, "mode": self.mode, "intent": self.intent,
-                "run_mode": self.run_mode, "osc_amp": self.osc_amp, "osc_period": self.osc_period,
-                "osc_center": self.osc_center, "osc_wave": self.osc_wave,
+                "run_mode": self.run_mode,
+                "drift_a": self.drift_a, "drift_ta": self.drift_ta, "drift_b": self.drift_b,
+                "drift_tb": self.drift_tb, "drift_ramp": self.drift_ramp, "drift_phase": self.drift_phase,
                 "expected": dict(self.expected), "mon": dict(self.mon),
                 "creep_kick": self.creep_kick, "creep_kick_ms": self.creep_kick_ms,
                 "backoff_on": self.backoff_on, "backoff_amps": self.backoff_amps,
@@ -258,15 +262,6 @@ def most_recent_preset():
 
 def safe_preset_name(name):
     return "".join(c for c in name if c.isalnum() or c in "-_")[:40]
-
-
-def wave(name, phase):
-    """Unit waveform in [-1, 1] for the DRIFT oscillator."""
-    if name == "triangle":
-        return (2 / math.pi) * math.asin(math.sin(phase))
-    if name == "saw":
-        return 2 * ((phase / (2 * math.pi)) % 1.0) - 1
-    return math.sin(phase)
 
 
 def decode(query, value, tele):
@@ -404,7 +399,9 @@ class Worker(threading.Thread):
 
     def run(self):
         applied = 0.0
-        osc_phase = 0.0
+        drift_phase = "holdA"
+        drift_t0 = 0.0
+        prev_mode = ""
         over_since = None
         kick_start = None
         logf = None
@@ -441,8 +438,8 @@ class Worker(threading.Thread):
                 with self.state.lock:
                     target, cap = self.state.target, self.state.cap
                     run_mode = self.state.run_mode
-                    osc_amp, osc_period = self.state.osc_amp, self.state.osc_period
-                    osc_center, osc_wave = self.state.osc_center, self.state.osc_wave
+                    drift_a, drift_ta = self.state.drift_a, self.state.drift_ta
+                    drift_b, drift_tb, drift_ramp = self.state.drift_b, self.state.drift_tb, self.state.drift_ramp
                     armed, estop, tripped = self.state.armed, self.state.estop, self.state.tripped
                     trip_amps, trip_ms = self.state.trip_amps, self.state.trip_ms
                     temp_trip, heat_budget, heat_now = self.state.temp_trip, self.state.heat_budget, self.state.heat_now
@@ -499,11 +496,34 @@ class Worker(threading.Thread):
                     self.state.push_event("TRIP: " + trip_reason)
 
                 # --- command gate + slew ----------------------------------- #
-                if run_mode == "drift":                  # auto slow sweep around a center
-                    osc_phase += 2 * math.pi * CMD_PERIOD / max(osc_period, 0.5)
-                    src = osc_center + osc_amp * wave(osc_wave, osc_phase)
+                if run_mode == "drift":
+                    # two-phase drift: hold A for ta, ramp to B, hold B for tb, ramp back to A
+                    if prev_mode != "drift":             # (re)entered drift -> restart cycle
+                        drift_phase, drift_t0 = "holdA", now
+                    dur = {"holdA": drift_ta, "rampAB": drift_ramp,
+                           "holdB": drift_tb, "rampBA": drift_ramp}
+                    nxt = {"holdA": "rampAB", "rampAB": "holdB", "holdB": "rampBA", "rampBA": "holdA"}
+                    guard = 0
+                    while (now - drift_t0) >= dur.get(drift_phase, 0.0) and guard < 8:
+                        drift_phase = nxt[drift_phase]     # skips zero-length phases (e.g. ramp=0)
+                        drift_t0 = now
+                        guard += 1
+                    el = now - drift_t0
+                    if drift_phase == "holdA":
+                        src = drift_a
+                    elif drift_phase == "holdB":
+                        src = drift_b
+                    elif drift_phase == "rampAB":
+                        f = min(1.0, el / drift_ramp) if drift_ramp > 0 else 1.0
+                        src = drift_a + (drift_b - drift_a) * f
+                    else:                                  # rampBA
+                        f = min(1.0, el / drift_ramp) if drift_ramp > 0 else 1.0
+                        src = drift_b + (drift_a - drift_b) * f
+                    with self.state.lock:
+                        self.state.drift_phase = drift_phase
                 else:
                     src = target
+                prev_mode = run_mode
                 # CREEP anti-stiction kick: brief breakaway boost when starting from a stop
                 if run_mode == "creep" and armed and not (estop or tripped) and abs(src) > 0:
                     if kick_start is None and abs(applied) < 1:
@@ -897,13 +917,13 @@ class Handler(BaseHTTPRequestHandler):
                     st.log_div = int(clamp(self._num(q, "div", st.log_div), 1, 30))
                 st.logging = q.get("on", ["1" if st.logging else "0"])[0] == "1"
             self._json({"ok": True})
-        elif u.path == "/api/osc":
+        elif u.path == "/api/drift":
             with st.lock:
-                st.osc_amp = clamp(self._num(q, "amp", st.osc_amp), 0, 1000)
-                st.osc_period = clamp(self._num(q, "period", st.osc_period), 0.5, 600)
-                st.osc_center = clamp(self._num(q, "center", st.osc_center), -1000, 1000)
-                w = q.get("wave", [st.osc_wave])[0]
-                st.osc_wave = w if w in ("sine", "triangle", "saw") else st.osc_wave
+                st.drift_a = clamp(self._num(q, "a", st.drift_a), -1000, 1000)
+                st.drift_b = clamp(self._num(q, "b", st.drift_b), -1000, 1000)
+                st.drift_ta = clamp(self._num(q, "ta", st.drift_ta), 0.1, 600)
+                st.drift_tb = clamp(self._num(q, "tb", st.drift_tb), 0.1, 600)
+                st.drift_ramp = clamp(self._num(q, "ramp", st.drift_ramp), 0, 60)
             self._json({"ok": True})
         elif u.path == "/api/reapply":
             with st.lock:
