@@ -124,10 +124,6 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  </div>
  <div id=caphint class=cap2 style="text-align:center;color:#d29922;min-height:14px;margin-top:2px"></div>
 
- <div class=row style="margin-top:10px">
-  <button id=zero class=clr title="Bring the motor to a stop (command 0) without disarming — stays in this mode, ready to drive again.">■ Stop</button>
- </div>
-
  <div class=row id=speedbox style="margin-top:10px;display:none">
   <span>Speed <input id=num class=num type=number min=-100 max=100 value=0 step=5 title="Type an exact speed as % and apply (CRUISE).">%</span>
   <button id=set class=zero title="Apply the exact speed typed at left (CRUISE).">Go</button>
@@ -176,6 +172,10 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <input id=ckick class=num type=number min=0 max=100 value=15 title="Breakaway boost (%) to overcome static friction when starting from a stop.">%
   for <input id=ckms class=num type=number min=0 step=50 value=400 title="Kick duration in ms. 0 = no kick."> ms
   <button id=cset class=clr title="Apply the creep breakaway-kick level and duration.">Apply</button>
+ </div>
+
+ <div class=row style="margin-top:12px;border-top:1px solid #21262d;padding-top:12px">
+  <button id=zero class=clr style="flex:1" title="Bring the motor to a stop (command 0) without disarming — stays in this mode, ready to drive again.">■ Stop</button>
  </div>
 
  <div class=hint id=hint>—</div>
