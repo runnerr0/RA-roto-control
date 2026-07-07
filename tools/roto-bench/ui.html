@@ -96,7 +96,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 
 <div class=card id=cmdcard>
  <div class="row spread"><span>Status: <span id=st class="pill warn">…</span></span>
-  <span>Speed cap ±<input id=cap class=cap type=number min=0 max=1000 value=150 title="Ceiling on command magnitude (0-1000). Limits top speed regardless of mode."></span></div>
+  <span>Speed cap ±<input id=cap class=cap type=number min=0 max=100 value=15 title="Ceiling on command magnitude, as % of full speed. Limits top speed regardless of mode.">%</span></div>
 
  <div class=row style="margin-top:10px">
   <button class=modebtn id=m_jog title="JOG — hold the slider to run, release to stop. For setup and positioning.">JOG</button>
@@ -111,10 +111,10 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div id=gate></div>
  <div id=botag style="color:#d29922;text-align:center;font-size:13px;font-weight:700;min-height:16px"></div>
 
- <input id=sl type=range min=-1000 max=1000 value=0 step=1 title="Speed slider — drag for speed and direction (center = stop). In JOG, release to stop.">
+ <input id=sl type=range min=-100 max=100 value=0 step=1 title="Speed slider — drag for speed and direction as % (center = stop). In JOG, release to stop.">
 
  <div class=row id=speedbox style="margin-top:10px;display:none">
-  <span>Speed <input id=num class=num type=number min=-1000 max=1000 value=0 step=10 title="Type an exact speed and apply (CRUISE/HOLD/CREEP)."></span>
+  <span>Speed <input id=num class=num type=number min=-100 max=100 value=0 step=5 title="Type an exact speed as % and apply (CRUISE/HOLD/CREEP).">%</span>
   <button id=set class=zero title="Apply the exact speed typed at left (CRUISE / HOLD / CREEP).">Go</button>
   <span class=q title="Type an exact speed and apply — used in CRUISE / HOLD / CREEP.">?</span>
  </div>
@@ -122,13 +122,13 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div id=driftbox style="display:none;margin-top:10px">
   <div class=cap2>Two-phase drift: hold <b>A</b>, ramp to <b>B</b>, hold <b>B</b>, ramp back — repeat.</div>
   <div class=drow>
-   <span class=dlbl>Side A speed <b id=dA_spdv>200</b></span>
-   <input id=dA_spd type=range min=-1000 max=1000 value=200 step=1 title="Side A speed (-1000 reverse … +1000 forward).">
+   <span class=dlbl>Side A speed <b id=dA_spdv>20%</b></span>
+   <input id=dA_spd type=range min=-100 max=100 value=20 step=1 title="Side A speed as % (− reverse … + forward).">
    <span class=dsub>hold <input id=dA_t class=num type=number min=0.1 step=0.5 value=10 title="Seconds to hold Side A."> s</span>
   </div>
   <div class=drow>
-   <span class=dlbl>Side B speed <b id=dB_spdv>-200</b></span>
-   <input id=dB_spd type=range min=-1000 max=1000 value=-200 step=1 title="Side B speed (-1000 reverse … +1000 forward).">
+   <span class=dlbl>Side B speed <b id=dB_spdv>-20%</b></span>
+   <input id=dB_spd type=range min=-100 max=100 value=-20 step=1 title="Side B speed as % (− reverse … + forward).">
    <span class=dsub>hold <input id=dB_t class=num type=number min=0.1 step=0.5 value=10 title="Seconds to hold Side B."> s</span>
   </div>
   <div class=row style="margin-top:8px">
@@ -142,7 +142,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 
  <div class=row id=creepbox style="margin-top:10px;display:none">
   <span class=sub>Creep kick:</span>
-  <input id=ckick class=num type=number min=0 max=1000 value=150 title="Breakaway boost to overcome static friction when starting from a stop.">
+  <input id=ckick class=num type=number min=0 max=100 value=15 title="Breakaway boost (%) to overcome static friction when starting from a stop.">%
   for <input id=ckms class=num type=number min=0 step=50 value=400 title="Kick duration in ms. 0 = no kick."> ms
   <button id=cset class=clr>Apply</button>
  </div>
@@ -207,9 +207,9 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 
  <div class=card id=sweepcard><b>Characterization sweep <span class=q title="Steps the command up in increments, waits, and records the settled amps at each level — maps command→load for THIS motor. It MOVES THE MOTOR; requires ARM. Auto-enables logging.">?</span></b>
   <div class=row style="margin-top:6px">
-   <span class=sub>step</span> <input id=swstep class=num type=number min=1 max=1000 value=25 title="Command increment per step.">
+   <span class=sub>step</span> <input id=swstep class=num type=number min=1 max=100 value=3 title="Command increment per step (%).">%
    <span class=sub>· dwell</span> <input id=swdwell class=num type=number min=0.2 step=0.1 value=1.5 title="Seconds per step: first ~40% settles, remainder is averaged."> <span class=sub>s</span>
-   <span class=sub>· max</span> <input id=swmax class=num type=number min=0 max=1000 value=300 title="Top command level. Clamped to the speed cap.">
+   <span class=sub>· max</span> <input id=swmax class=num type=number min=0 max=100 value=30 title="Top command level (%). Clamped to the speed cap.">%
    <span class=sub>·</span> <select id=swdir class=cap title="Direction(s) to characterize."><option value=fwd>fwd</option><option value=rev>rev</option><option value=both>both</option></select>
   </div>
   <div class=row style="margin-top:10px">
@@ -238,7 +238,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
    <span class=sub>· max</span> <input id=lfmax class=num type=number min=1 step=1 value=25 title="Ceiling — the test never exceeds this (A)."> <span class=sub>A</span>
   </div>
   <div class=row style="margin-top:6px">
-   <span class=sub>hold cmd</span> <input id=lfcmd class=num type=number min=-1000 max=1000 value=200 title="Slow command held during the test (also clamped to the speed cap).">
+   <span class=sub>hold cmd</span> <input id=lfcmd class=num type=number min=-100 max=100 value=20 title="Slow command (%) held during the test (also clamped to the speed cap).">%
    <span class=sub>· dwell</span> <input id=lfdwell class=num type=number min=0.5 step=0.5 value=3 title="Seconds per rung."> <span class=sub>s</span>
    <span class=sub>· stop °C</span> <input id=lftemp class=num type=number min=0 step=1 value=65 title="Auto-stop temperature.">
   </div>
@@ -268,6 +268,8 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 </div><script>
 const $=id=>document.getElementById(id);
 function D(x,f){return (x==null)?(f===undefined?'—':f):x}  // legacy-safe nullish helper (avoids ES2020 syntax)
+function toRaw(p){return Math.round((+p)*10)}   // percent (-100..100) -> raw command (-1000..1000)
+function toPct(r){return Math.round((+r)/10)}   // raw command -> percent
 const SRC=[['1','pin15 · Dec2'],['2','pin16 · Dec3'],['3','pin4 · Dec4'],['4','pin17 · Dec5'],['5','pin21'],['6','pin22']];
 const PROF=[
  ['ALIM','1','Current limit. Controller folds back power to hold motor amps at/below this. Units 0.1 A → 50 = 5.0 A.'],
@@ -314,13 +316,13 @@ MODELIST.forEach(m=>$('m_'+m).onclick=()=>setMode(m));
 $('sl').addEventListener('input',e=>{if(blocked())flashBlk();setCmd(+e.target.value)});
 function release(){if(rmode==='jog'){$('sl').value=0;setCmd(0)}}
 document.addEventListener('mouseup',release);document.addEventListener('touchend',release);
-function setCmd(v){$('cmd').textContent=v;api('/api/set?g='+v)}
+function setCmd(p){$('cmd').textContent=p+'%';api('/api/set?g='+toRaw(p))}   // p is percent
 $('set').onclick=()=>{if(blocked())flashBlk();const v=+$('num').value;$('sl').value=v;setCmd(v)};
 $('arm').onclick=()=>api('/api/arm?on='+($('arm').classList.contains('off')?1:0));
 $('zero').onclick=()=>{$('sl').value=0;$('num').value=0;setCmd(0)};
 $('es').onclick=()=>{$('sl').value=0;setCmd(0);api('/api/estop')};
 $('clr').onclick=()=>api('/api/clear');
-$('cap').onchange=e=>api('/api/cap?v='+e.target.value);
+$('cap').onchange=e=>api('/api/cap?v='+toRaw(e.target.value));
 $('tset').onclick=()=>api('/api/trip?amps='+$('tamps').value+'&ms='+$('tms').value);
 $('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('theat').value);
 $('govset').onclick=()=>api('/api/governor?on='+($('govon').checked?1:0)+'&frac='+($('govfrac').value/100));
@@ -328,13 +330,13 @@ $('rtrip').onclick=()=>api('/api/resettrip');
 $('flash').onclick=()=>api('/api/config_flash');
 $('reapply').onclick=()=>api('/api/reapply');
 $('aclear').onclick=()=>{$('alog').innerHTML=''};
-$('cset').onclick=()=>api('/api/creep?kick='+$('ckick').value+'&ms='+$('ckms').value);
+$('cset').onclick=()=>api('/api/creep?kick='+toRaw($('ckick').value)+'&ms='+$('ckms').value);
 $('logbtn').onclick=()=>api('/api/log?on='+((S&&S.logging)?0:1)+'&div='+$('lograte').value);
 
 // ---- two-phase drift instrument ----
-$('dA_spd').addEventListener('input',e=>{$('dA_spdv').textContent=e.target.value});
-$('dB_spd').addEventListener('input',e=>{$('dB_spdv').textContent=e.target.value});
-$('dApply').onclick=()=>api('/api/drift?a='+$('dA_spd').value+'&ta='+$('dA_t').value+'&b='+$('dB_spd').value+'&tb='+$('dB_t').value+'&ramp='+$('dRamp').value);
+$('dA_spd').addEventListener('input',e=>{$('dA_spdv').textContent=e.target.value+'%'});
+$('dB_spd').addEventListener('input',e=>{$('dB_spdv').textContent=e.target.value+'%'});
+$('dApply').onclick=()=>api('/api/drift?a='+toRaw($('dA_spd').value)+'&ta='+$('dA_t').value+'&b='+toRaw($('dB_spd').value)+'&tb='+$('dB_t').value+'&ramp='+$('dRamp').value);
 
 // ---- top bar: guide + help mode ----
 $('guidebtn').onclick=()=>window.open('/guide','_blank');
@@ -362,7 +364,7 @@ $('logcopy').onclick=()=>{const s=S||{};
 
 // ---- characterization sweep ----
 $('swrun').onclick=()=>{if(!S||!S.armed){flashBlk();return}
- api('/api/sweep?on=1&step='+$('swstep').value+'&dwell='+$('swdwell').value+'&max='+$('swmax').value+'&dir='+$('swdir').value)};
+ api('/api/sweep?on=1&step='+toRaw($('swstep').value)+'&dwell='+$('swdwell').value+'&max='+toRaw($('swmax').value)+'&dir='+$('swdir').value)};
 $('swstop').onclick=()=>api('/api/sweep?on=0');
 $('swsave').onclick=()=>{const n=$('swname').value;if(!n)return;api('/api/preset_save?name='+encodeURIComponent(n)).then(loadPresetList)};
 $('swload').onclick=()=>{const n=$('swpresets').value;if(!n)return;api('/api/preset_load?name='+encodeURIComponent(n))};
@@ -371,7 +373,7 @@ function loadPresetList(){api('/api/preset_list').then(r=>{if(!r||!r.presets)ret
 
 // ---- guided lift test (ALIM inputs are AMPS in the UI -> x10 to 0.1A units) ----
 $('lfrun').onclick=()=>{if(!S||!S.armed){flashBlk();return}
- api('/api/lift?on=1&start='+($('lfstart').value*10)+'&step='+($('lfstep').value*10)+'&max='+($('lfmax').value*10)+'&cmd='+$('lfcmd').value+'&dwell='+$('lfdwell').value+'&temp='+$('lftemp').value)};
+ api('/api/lift?on=1&start='+($('lfstart').value*10)+'&step='+($('lfstep').value*10)+'&max='+($('lfmax').value*10)+'&cmd='+toRaw($('lfcmd').value)+'&dwell='+$('lfdwell').value+'&temp='+$('lftemp').value)};
 $('lfstop').onclick=()=>api('/api/lift?on=0');
 
 // ---- profile editor ----
@@ -418,13 +420,13 @@ function drawDrift(s){const c=$('cdrift'),x=c.getContext('2d'),W=c.width=c.clien
  x.strokeStyle='#484f58';x.beginPath();x.moveTo(W/2,midY-16);x.lineTo(W/2,midY+16);x.stroke();  // center
  const setpoint=(v,col,lbl,on)=>{const px=X(v);x.strokeStyle=col;x.lineWidth=on?3:1.5;
   x.beginPath();x.moveTo(px,midY-18);x.lineTo(px,midY+18);x.stroke();x.lineWidth=1;
-  x.fillStyle=col;x.font=(on?'bold ':'')+'11px monospace';x.fillText(lbl+' '+Math.round(v),px-10,midY-22)};
+  x.fillStyle=col;x.font=(on?'bold ':'')+'11px monospace';x.fillText(lbl+' '+toPct(v)+'%',px-10,midY-22)};
  setpoint(a,'#58a6ff','A',ph==='holdA');
  setpoint(b,'#d2a8ff','B',ph==='holdB');
  x.fillStyle='#3fb950';x.beginPath();x.arc(X(cur),midY,6,0,2*Math.PI);x.fill();   // live command
  const phName={holdA:'holding A',rampAB:'ramping A→B',holdB:'holding B',rampBA:'ramping B→A'}[ph]||'—';
  const pill=$('dphase');pill.textContent=phName;pill.className='pill '+((ph==='holdA'||ph==='holdB')?'ok':'warn');
- $('drifttxt').innerHTML='Drives <b>A</b> at '+Math.round(a)+' for '+D(s.drift_ta,'?')+' s, then <b>B</b> at '+Math.round(b)+' for '+D(s.drift_tb,'?')+' s, '+D(s.drift_ramp,'?')+' s ramp. Green dot = command now; blue tick = A, purple tick = B.';
+ $('drifttxt').innerHTML='Drives <b>A</b> at '+toPct(a)+'% for '+D(s.drift_ta,'?')+' s, then <b>B</b> at '+toPct(b)+'% for '+D(s.drift_tb,'?')+' s, '+D(s.drift_ramp,'?')+' s ramp. Green dot = command now; blue tick = A, purple tick = B.';
 }
 function drawSweep(res,breakaway){const c=$('cswp'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height,PADL=34,PADB=18;x.clearRect(0,0,W,H);
  x.strokeStyle='#30363d';x.beginPath();x.moveTo(PADL,H-PADB);x.lineTo(W,H-PADB);x.moveTo(PADL,4);x.lineTo(PADL,H-PADB);x.stroke();
@@ -485,9 +487,9 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('st').textContent=stx;$('st').className='pill '+cls;
  $('st2').textContent=stx;$('st2').className='pill '+cls;
  $('bar_amps').textContent=(t.amps_m1!=null)?t.amps_m1.toFixed(1)+' A':'—';
- $('bar_cmd').textContent=s.applied;
+ $('bar_cmd').textContent=toPct(s.applied)+'%';
  const a=$('arm');a.textContent=s.armed?'ARMED':'DISARMED';a.className='arm'+(s.armed?'':' off');
- if(s.run_mode==='drift')$('cmd').textContent=s.applied; // reflect drift
+ $('cmd').textContent=toPct(s.applied)+'%'; // big readout = live applied command, as %
  $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
  $('clr').style.display=s.estop?'':'none';$('rtrip').style.display=s.tripped?'':'none';   // recovery buttons appear only when relevant
  $('botag').textContent=s.gov_active?('⚖ GOVERNING — command held to '+Math.round((s.gov_scale!=null?s.gov_scale:1)*100)+'% to ride just under the current limit'):'';
@@ -500,8 +502,8 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  if(s.log_name)$('logstat').innerHTML=(s.logging?'● Recording':'■ Stopped')+' → <code>logs/'+s.log_name+'</code> · '+(s.log_rows||0)+' rows';
  // sync drift inputs once from backend defaults
  if(!driftSynced&&s.drift_a!=null){driftSynced=true;
-  $('dA_spd').value=s.drift_a;$('dA_spdv').textContent=Math.round(s.drift_a);
-  $('dB_spd').value=s.drift_b;$('dB_spdv').textContent=Math.round(s.drift_b);
+  $('dA_spd').value=toPct(s.drift_a);$('dA_spdv').textContent=toPct(s.drift_a)+'%';
+  $('dB_spd').value=toPct(s.drift_b);$('dB_spdv').textContent=toPct(s.drift_b)+'%';
   $('dA_t').value=s.drift_ta;$('dB_t').value=s.drift_tb;$('dRamp').value=s.drift_ramp;}
  if(!govSynced&&s.gov_on!=null){govSynced=true;                 // reflect governor state in the toggle
   $('govon').checked=!!s.gov_on;if(s.gov_frac!=null)$('govfrac').value=Math.round(s.gov_frac*100);}
@@ -544,11 +546,11 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  // health
  const f=(t.faults&&t.faults.length)?t.faults.join(' '):'none';
  const atlim=t.at_limit?' <span class=faults>AT-LIMIT</span>':'';
- $('tele').innerHTML=[['Applied cmd',s.applied+' / 1000'],
+ $('tele').innerHTML=[['Applied cmd',toPct(s.applied)+' %'],
   ['Motor amps',(t.amps_m1!=null?t.amps_m1.toFixed(1)+' A':'—')+atlim],
   ['Supply amps',(t.batt_amps!=null?t.batt_amps.toFixed(1)+' A'+(t.batt_amps<-0.2?' <span style="color:#3fb950">(regen)</span>':''):'—')],
   ['Power out',(t.power!=null?(t.power/10).toFixed(0)+' %':'—')],
-  ['Ctrl command',(t.mcmd!=null?t.mcmd+' / 1000':'—')],
+  ['Ctrl command',(t.mcmd!=null?toPct(t.mcmd)+' %':'—')],
   ['Speed',(t.speed!=null?t.speed+' RPM'+(t.speed==0?' <span class=sub>(needs encoder)</span>':''):'—')],
   ['Battery',(t.volts_batt!=null?t.volts_batt.toFixed(1)+' V':'—')],['5V out',(t.volts_5v!=null?t.volts_5v.toFixed(2)+' V':'—')],
   ['Temp °C',(t.temp?t.temp.join(' / '):'—')],

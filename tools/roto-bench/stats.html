@@ -74,11 +74,11 @@ function poll(){api('/api/state',function(s){
  if(t.at_limit)flags+=' · AT-LIMIT';
  var faults=(t.faults&&t.faults.length)?t.faults.join(' · '):'none';
  var g='';
- g+=tile('Command',Math.round(D(s.applied,0)),'/1000','target '+Math.round(D(s.target,0)));
+ g+=tile('Command',Math.round(D(s.applied,0)/10),'%','target '+Math.round(D(s.target,0)/10)+'%');
  g+=tile('Motor current',n1(amps),'A','effort / load'+(t.at_limit?' <span class="tag y">limit</span>':''),ampCls);
  g+=tile('Supply current',n1(ba),'A','from supply '+regen);
  g+=tile('Power out',pw==null?'—':Math.round(pw/10),'%','applied duty');
- g+=tile('Ctrl command',mc==null?'—':Math.round(mc),'/1000','what the controller applies');
+ g+=tile('Ctrl command',mc==null?'—':Math.round(mc/10),'%','what the controller applies');
  g+=tile('Speed',sp==null?'0':sp,'rpm',(sp?'':'needs encoder'));
  g+=tile('Battery',n1(s.tele.volts_batt),'V','supply voltage');
  g+=tile('5V rail',n1(s.tele.volts_5v),'V','logic supply');
