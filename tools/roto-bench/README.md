@@ -133,6 +133,42 @@ holds under varying load — which also makes stall detection unambiguous. Encod
 highest-leverage mechanical move) are hardware follow-ups (pending parts); CREEP + logging cover the
 interim. See the slow-speed plan in the project docs.
 
+## Tuning for a loaded roto
+
+A large, slow, **unbalanced** roto (one that lifts a mass up one side) is the hard case: it draws
+**current that varies with angle** — highest while lifting, low or regenerative on the way down. The
+number that matters is the **peak-lift current**, and current *is* torque, so if the current limit is
+below what the peak needs, it stalls at the hardest angle ("won't lift").
+
+### The workflow
+
+1. **Be on the real supply**, not a current-limited bench PSU — and **fuse & wire** for the current
+   you'll run. With a big supply the controller `ALIM` + the trips are now your safety, not the PSU.
+   Keep the hardware E-STOP reachable.
+2. **Run the guided lift test** (its own card). It holds a slow command and steps `ALIM` up rung by
+   rung until measured amps fall *below* the limit — the moment the motor breaks free — and reports
+   the **load current**. It requires ARM, aborts on any trip/disarm/E-STOP, auto-stops on over-temp,
+   never exceeds your ceiling, and **restores the safe limit** on any non-success stop.
+3. **Set `ALIM ≈ peak-lift × 1.3`** in the Advanced profile editor (the test prints the suggestion).
+   That gives torque headroom at the worst angle without running wide open.
+4. **Verify under load**: run it loaded at your target speed for a few minutes with **CREEP** (stall
+   trip suppressed; temp + I²t still guard) and watch the **Max temp** stat. Temp **stabilising** =
+   good. Temp **climbing** = you're over the motor's continuous rating at this duty.
+5. **Set the guards** with the loaded numbers: stall trip *above* peak-lift, a temperature trip below
+   the motor's limit, an I²t budget that tolerates normal lifting but catches a jam. Tune the **CREEP
+   kick** to just above the breakaway (from the characterization sweep) so it starts cleanly.
+6. **Save to flash** once dialled, so a controller reset can't revert it (and the control-drift alarm
+   will catch it if it does).
+
+### When more current isn't the answer
+
+If the lift test hits the ceiling without lifting, or step 4 shows temperature that keeps climbing,
+the motor is telling you it's past its **continuous** rating at that duty (slow = no cooling airflow,
+near-locked-rotor heat). The real fixes are **more gear reduction** (the highest-leverage move — less
+motor current for the same load) or a **run/rest duty cycle** — not just raising `ALIM`. And once an
+**encoder** is fitted, closed-loop speed control does this angle-by-angle automatically: it pours in
+current at the hard lifting angle and backs off on the descent.
+
 ## Running the show from this console
 
 This console is a genuine control path, not only a bench tool — for a **self-contained rotating piece
