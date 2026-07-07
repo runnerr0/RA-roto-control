@@ -322,10 +322,15 @@ def decode(query, value, tele):
 
 
 class Worker(threading.Thread):
-    def __init__(self, state, port):
+    def __init__(self, state, port, sim=False):
         super().__init__(daemon=True)
         self.state = state
         self.port = port
+        self.sim = sim
+        self._sim_applied = 0.0
+        self._sim_cfg = {"ALIM 1": "50", "MXPF 1": "100", "MXPR 1": "100", "RWD": "500",
+                         "ATRIG 1": "45", "ATGA 1": "17", "ATGD 1": "800", "AINA 3": "0",
+                         "AINA 4": "0", "MAC 1": "500", "MDEC 1": "500", "OVL": "450", "UVL": "50"}
         self._ser = None
         self._qi = 0
         self._halt = threading.Event()
@@ -334,12 +339,46 @@ class Worker(threading.Thread):
         self._halt.set()
 
     def _open(self):
+        if self.sim:
+            self._ser = "SIM"
+            return
         self._ser = serial.Serial(self.port, BAUD, timeout=0.05, bytesize=8,
                                   parity="N", stopbits=1, xonxoff=False, rtscts=False)
         time.sleep(0.2)
         self._ser.reset_input_buffer()
 
+    def _sim_reply(self, line):
+        """Synthetic controller responses so the UI runs fully without hardware."""
+        ap = self._sim_applied
+        amps = (abs(ap) / 1000.0) * 6.0                     # up to ~6 A at full command
+        amps = amps if ap >= 0 else -amps
+        parts = line.split()
+        tok = parts[0]
+        if tok.startswith("!") or tok.startswith("%"):
+            return None
+        if tok.startswith("^"):                             # config write -> stash + ack
+            key = tok[1:]
+            if len(parts) >= 3:
+                self._sim_cfg[key + " " + parts[1]] = parts[2]
+            elif len(parts) == 2:
+                self._sim_cfg[key] = parts[1]
+            return "+"
+        q = {"?A": "A=%d" % int(amps * 10), "?V": "V=250:255:4900",
+             "?T": "T=30:29:27:28:28", "?FF": "FF=0",
+             "?BA": "BA=%d" % int(amps * (abs(ap) / 1000.0) * 10), "?P": "P=%d" % int(ap),
+             "?M": "M=%d" % int(ap), "?S": "S=0", "?FS": "FS=1",
+             "?AI": "AI=2500:2500:1270:1275:0:0", "?PI": "PI=0:0:0:0:0:0",
+             "?AIC": "AIC=0:0:%d:%d:0:0" % (int(ap), int(ap)), "?FID": "FID=SIM"}
+        if tok in q:
+            return q[tok]
+        if tok.startswith("~"):                             # config read
+            key = tok[1:] + ((" " + parts[1]) if len(parts) > 1 else "")
+            return tok[1:] + "=" + self._sim_cfg.get(key, "0")
+        return None
+
     def _txrx(self, line, want_prefix):
+        if self.sim:
+            return self._sim_reply(line)
         self._ser.write((line + "\r").encode("ascii"))
         self._ser.flush()
         deadline = time.time() + 0.05
@@ -752,6 +791,7 @@ class Worker(threading.Thread):
                 # --- commit shared state ----------------------------------- #
                 with self.state.lock:
                     self.state.applied = applied
+                    self._sim_applied = applied
                     self.state.deadman = deadman
                     self.state.heat_now = heat_now
                     self.state.mode = "momentary" if momentary else "latched"
@@ -1083,11 +1123,14 @@ def main():
     ap = argparse.ArgumentParser(description="HDC2450 bench/run control console.")
     ap.add_argument("--port", help="serial port (auto-detect if omitted)")
     ap.add_argument("--cap", type=int, default=DEFAULT_CAP, help="initial command cap /1000")
+    ap.add_argument("--sim", action="store_true",
+                    help="preview mode: run the UI with fake telemetry, no hardware")
+    ap.add_argument("--webport", type=int, default=PORT, help="HTTP port (default %d)" % PORT)
     args = ap.parse_args()
-    if serial is None:
+    if serial is None and not args.sim:
         sys.exit("pyserial not installed:  pip install pyserial")
 
-    port = discover_port(args.port)
+    port = "SIM" if args.sim else discover_port(args.port)
     state = State(clamp(args.cap, 0, MAX_CAP))
     # Load the most-recent characterization preset for DISPLAY only (reference
     # baseline in the UI). This never moves the motor and never starts a sweep.
@@ -1097,15 +1140,15 @@ def main():
             state.baseline = json.loads(mr.read_text())
         except (OSError, ValueError):
             pass
-    worker = Worker(state, port)
+    worker = Worker(state, port, sim=args.sim)
     worker.start()
 
     Handler.state = state
-    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    httpd = ThreadingHTTPServer((HOST, args.webport), Handler)
     print("=" * 60)
-    print("  RA Roto — control console")
+    print("  RA Roto — control console" + ("  [SIM PREVIEW — fake data, no hardware]" if args.sim else ""))
     print(f"  serial : {port} @ {BAUD}")
-    print(f"  web UI : http://{HOST}:{PORT}")
+    print(f"  web UI : http://{HOST}:{args.webport}")
     print(f"  trips  : stall {TRIP_AMPS_DEFAULT}A/{TRIP_MS_DEFAULT}ms (RUN) · "
           f"temp {TEMP_TRIP_DEFAULT:.0f}C · I2t {HEAT_BUDGET_DEFAULT:.0f}")
     print("  safety : DISARMED at start · power the motor from a current-limited supply")
