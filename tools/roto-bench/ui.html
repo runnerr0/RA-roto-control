@@ -42,9 +42,27 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 @keyframes shk{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(6px)}70%{transform:translateX(-4px)}}
 .blk{animation:shk .32s;box-shadow:0 0 0 2px #da3633 inset;border-color:#da3633!important}
 #gate{color:#f85149;text-align:center;font-size:13px;font-weight:700;min-height:17px;margin:2px 0}
+.topbar{position:sticky;top:0;z-index:100;background:#0d1117;border-bottom:1px solid #30363d;margin:-18px -18px 8px;padding:9px 18px}
+.topbar-main{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.topbar .estop{flex:0 0 auto;font-size:16px;padding:9px 16px}
+.barlive{font:600 13px ui-monospace,monospace;color:#c9d1d9;white-space:nowrap}
+.barlive b{color:#58a6ff}
+.barbtn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:8px 12px;font-size:13px}
+.barbtn.on{background:#8957e5;border-color:#8957e5;color:#fff}
+.helpstrip{margin-top:7px;padding:6px 10px;background:#0d2440;border:1px solid #1f6feb44;color:#79c0ff;border-radius:6px;font-size:12px;min-height:16px}
 </style></head><body><div class=wrap>
+<div class=topbar id=topbar>
+ <div class=topbar-main>
+  <span id=st2 class="pill warn" title="Live console status: serial link, arm/e-stop/trip state, and whether the motor is running.">…</span>
+  <span class=barlive title="Live motor current and the command currently applied to the motor."><span id=bar_amps>—</span> · cmd <b id=bar_cmd>0</b></span>
+  <button class=estop id=es title="Emergency stop: instantly commands 0 and latches E-STOP. Always reachable. Clear E-Stop, then ARM, to resume.">■ E-STOP</button>
+  <button class=barbtn id=helptog title="Toggle hover-help: when on, point at any control to see what it does in the strip below.">? Help</button>
+  <button class=barbtn id=guidebtn title="Open the full operator guide in a new browser tab.">Guide</button>
+ </div>
+ <div class=helpstrip id=helpstrip style="display:none"></div>
+</div>
 <h1>RA Roto — Control Console</h1>
-<p class=sub>HDC2450 Motor 1 · pick a run mode, ARM, then drive. Hover the <span class=q>?</span> marks for help.</p>
+<p class=sub>HDC2450 Motor 1 · pick a run mode, ARM, then drive. Turn on <b>? Help</b> in the top bar, then point at any control for an explanation.</p>
 
 <div class=card id=cmdcard>
  <div class="row spread"><span>Status: <span id=st class="pill warn">…</span></span>
@@ -102,7 +120,6 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   at <input id=boamps class=num type=number min=0 step=0.5 value=4> A for <input id=boms class=num type=number min=50 step=50 value=400> ms
   <button id=boset class=clr>Apply</button>
  </div>
- <div class=row style="margin-top:10px"><button class=estop id=es>■ E-STOP</button></div>
  <div class=hint id=hint>—</div>
 </div>
 
@@ -141,7 +158,8 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 
 <div class=card><div class="row spread"><b>Characterization log</b>
   <span><span class=sub>rate</span> <select id=lograte class=cap title="Sampling rate. Aggressive (15 Hz) for fine tuning; motor amps update every tick, slower telemetry at its own rate."><option value=3>5 Hz</option><option value=1>15 Hz (aggressive)</option></select>
-  <button id=logbtn class=zero>● Start logging</button></span></div>
+  <button id=logbtn class=zero>● Start logging</button>
+  <button id=logcopy class=clr title="Copy the log file name, row count, logging state, and recent alert lines to the clipboard.">Copy</button></span></div>
  <div class=sub id=logstat style="margin-top:6px">Full telemetry (command · amps · supply A · power · volts · temp · at-limit · backoff) + every config change &amp; test event → CSV in <code>tools/roto-bench/logs/</code>.</div>
 </div>
 
@@ -207,19 +225,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   <div id=cfglog class=sub style="margin-top:8px;font-family:ui-monospace,monospace;white-space:pre-wrap"></div>
  </details>
 </div>
-<div class=card><b>Input diagnostics</b> <span class=sub>same DB25 pin reads analog OR pulse per config</span><table id=diag class=diag></table></div>
-
-<details><summary>Operator guide</summary>
- <p><b>Start:</b> pick a mode → press <b>ARM</b> → drive. <b>Stop:</b> release the slider (JOG), press <b>Zero</b>, or <b>E-STOP</b>.</p>
- <ul>
-  <li><b>JOG</b> — hold the slider to run, release = stop. For setup and positioning.</li>
-  <li><b>CRUISE</b> — set a speed; it holds. Stall-protected. For steady running.</li>
-  <li><b>DRIFT</b> — auto slow sweep back and forth (amplitude + period). Ambient motion.</li>
-  <li><b>HOLD</b> — maintain position under load. Stall-trip off; temperature/I²t still protect.</li>
- </ul>
- <p><b>If it TRIPS:</b> clear the jam/cause → <b>RESET TRIP</b> → <b>ARM</b> again. A trip means the motor stopped itself to avoid damage.</p>
- <p><b>Reading it:</b> top graph = what you commanded (motion); bottom = current drawn (load). Current climbing while command is steady means the load is increasing — watch it near the red limit line.</p>
-</details>
+<div class=card><details><summary><b>Input diagnostics</b> <span class=sub>same DB25 pin reads analog OR pulse per config · collapsed by default</span></summary><table id=diag class=diag></table></details></div>
 </div><script>
 const $=id=>document.getElementById(id);
 function D(x,f){return (x==null)?(f===undefined?'—':f):x}  // legacy-safe nullish helper (avoids ES2020 syntax)
@@ -282,6 +288,26 @@ $('reapply').onclick=()=>api('/api/reapply');
 $('aclear').onclick=()=>{$('alog').innerHTML=''};
 $('cset').onclick=()=>api('/api/creep?kick='+$('ckick').value+'&ms='+$('ckms').value);
 $('logbtn').onclick=()=>api('/api/log?on='+((S&&S.logging)?0:1)+'&div='+$('lograte').value);
+
+// ---- top bar: guide + help mode ----
+$('guidebtn').onclick=()=>window.open('/guide','_blank');
+let helpMode=false;
+function findHelp(el){while(el&&el!==document.body){if(el.getAttribute){const h=el.getAttribute('data-help')||el.getAttribute('title');if(h)return h}el=el.parentNode}return ''}
+$('helptog').onclick=()=>{helpMode=!helpMode;$('helptog').className='barbtn'+(helpMode?' on':'');
+ $('helpstrip').style.display=helpMode?'block':'none';
+ if(helpMode)$('helpstrip').textContent='Help mode on — point at any control for an explanation.'};
+document.addEventListener('mouseover',e=>{if(!helpMode)return;const h=findHelp(e.target);if(h)$('helpstrip').textContent=h});
+
+// ---- copy log info to clipboard ----
+function fallbackCopy(t,done){try{const ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.focus();ta.select();document.execCommand('copy');document.body.removeChild(ta);done()}catch(e){}}
+function copyText(t){const b=$('logcopy'),orig=b.textContent,done=()=>{b.textContent='Copied';setTimeout(()=>{b.textContent=orig},1000)};
+ try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done,()=>fallbackCopy(t,done));return}}catch(e){}
+ fallbackCopy(t,done)}
+$('logcopy').onclick=()=>{const s=S||{};
+ let txt='RA Roto log · '+(s.log_name?('logs/'+s.log_name):'(no file)')+' · '+D(s.log_rows,0)+' rows · '+(s.logging?'recording':'stopped')+'\n';
+ const alog=$('alog'),lines=[];if(alog){const ds=alog.querySelectorAll('div');for(let i=0;i<ds.length;i++)lines.push(ds[i].textContent)}
+ if(lines.length)txt+='\nRecent alerts:\n'+lines.join('\n');
+ copyText(txt)};
 
 // ---- characterization sweep ----
 $('swrun').onclick=()=>{if(!S||!S.armed){flashBlk();return}
@@ -388,6 +414,9 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  else if(s.run_mode==='jog'&&s.deadman){stx='DEADMAN';cls='warn'}else if(!s.armed){stx='DISARMED';cls='warn'}
  else if(s.applied!=0){stx='RUNNING';cls='ok'}else{stx='ARMED · 0';cls='ok'}
  $('st').textContent=stx;$('st').className='pill '+cls;
+ $('st2').textContent=stx;$('st2').className='pill '+cls;
+ $('bar_amps').textContent=(t.amps_m1!=null)?t.amps_m1.toFixed(1)+' A':'—';
+ $('bar_cmd').textContent=s.applied;
  const a=$('arm');a.textContent=s.armed?'ARMED':'DISARMED';a.className='arm'+(s.armed?'':' off');
  if(s.run_mode==='drift')$('cmd').textContent=s.applied; // reflect oscillator
  $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
