@@ -61,6 +61,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
 
  <div class=val id=cmd>0</div>
  <div id=gate></div>
+ <div id=botag style="color:#d29922;text-align:center;font-size:13px;font-weight:700;min-height:16px"></div>
  <input id=sl type=range min=-1000 max=1000 value=0 step=1>
  <div class=row style="margin-top:10px">
   <span>Set <input id=num class=num type=number min=-1000 max=1000 value=0 step=10 title="Type a target and Apply (CRUISE/HOLD)."></span>
@@ -94,6 +95,12 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
  <div class="row" style="margin-top:10px">
   <span class=sub>Protect: <span class=q title="Always on, incl. HOLD. Temp is the real damage signal; I2t catches sustained heavy current.">?</span></span>
   temp <input id=ttemp class=num type=number min=0 step=1 value=70> °C · I²t <input id=theat class=num type=number min=0 step=50 value=600> A²s <button id=pset class=clr>Apply</button>
+ </div>
+ <div class="row" style="margin-top:10px">
+  <span class=sub>Overtorque backoff: <span class=q title="When amps sit at/above this level, the command is gently ramped DOWN to relieve torque — so a jam can't wind up and break free violently. Recovers when relieved. Suppressed during the lift test.">?</span></span>
+  <label class=sub><input type=checkbox id=boon checked> on</label>
+  at <input id=boamps class=num type=number min=0 step=0.5 value=4> A for <input id=boms class=num type=number min=50 step=50 value=400> ms
+  <button id=boset class=clr>Apply</button>
  </div>
  <div class=row style="margin-top:10px"><button class=estop id=es>■ E-STOP</button></div>
  <div class=hint id=hint>—</div>
@@ -266,6 +273,7 @@ $('cap').onchange=e=>api('/api/cap?v='+e.target.value);
 $('oset').onclick=()=>api('/api/osc?amp='+$('oamp').value+'&center='+$('ocenter').value+'&period='+$('operiod').value+'&wave='+$('owave').value);
 $('tset').onclick=()=>api('/api/trip?amps='+$('tamps').value+'&ms='+$('tms').value);
 $('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('theat').value);
+$('boset').onclick=()=>api('/api/backoff?on='+($('boon').checked?1:0)+'&amps='+$('boamps').value+'&ms='+$('boms').value);
 $('rtrip').onclick=()=>api('/api/resettrip');
 $('flash').onclick=()=>api('/api/config_flash');
 $('reapply').onclick=()=>api('/api/reapply');
@@ -339,6 +347,7 @@ function raise(k,sev,msg){active[k]={sev,msg}}
 function deriveAlerts(s,t){active={};
  if(!s.connected)raise('conn','crit','NO SERIAL — controller link lost');
  if(s.estop)raise('estop','crit','E-STOP latched');
+ if(s.backoff_active)raise('backoff','warn','Overtorque backoff — command relieved to '+Math.round((s.backoff_scale!=null?s.backoff_scale:1)*100)+'%');
  if(s.tripped)raise('trip','crit','TRIP — '+(s.trip_reason||'stall'));
  if(s.mode==='momentary'&&s.deadman&&s.armed)raise('dead','warn','Deadman — no control contact, forcing 0');
  (t.faults||[]).forEach(f=>raise('flt_'+f,'crit','Controller fault: '+f));
@@ -380,6 +389,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  const a=$('arm');a.textContent=s.armed?'ARMED':'DISARMED';a.className='arm'+(s.armed?'':' off');
  if(s.run_mode==='drift')$('cmd').textContent=s.applied; // reflect oscillator
  $('tripcard').style.display=s.tripped?'block':'none';$('tripreason').textContent=s.trip_reason||'';
+ $('botag').textContent=s.backoff_active?('⤵ OVERTORQUE — command relieved to '+Math.round((s.backoff_scale!=null?s.backoff_scale:1)*100)+'% to avoid breaking free'):'';
  hint(s);
  let g='';
  if(s.estop)g='E-STOP';else if(s.tripped)g='TRIPPED';else if(!s.armed)g='DISARMED';

@@ -63,6 +63,8 @@ TRIP_MS_DEFAULT = 800
 TEMP_TRIP_DEFAULT = 70.0     # degC; 0 disables
 HEAT_BASELINE = 2.0          # amps below which the I2t bucket leaks
 HEAT_BUDGET_DEFAULT = 600.0  # A^2*s; ~28 s at 5 A; 0 disables
+BACKOFF_DOWN = 0.03          # command-scale decrease per tick while over-torque
+BACKOFF_UP = 0.006           # slow recovery per tick once relieved (no oscillation)
 HOST, PORT = "127.0.0.1", 8791
 UI_FILE = Path(__file__).parent / "ui.html"
 PRESET_DIR = Path(__file__).parent / "presets"
@@ -98,6 +100,12 @@ class State:
         self.osc_wave = "sine"           # sine | triangle | saw
         self.expected = {"ALIM 1": "50", "RWD": "500", "AINA 3": "0", "AINA 4": "0"}
         self.mon = {}                    # live values of the drift-watched params
+        # --- overtorque backoff: relieve command when pinned at the current limit --- #
+        self.backoff_on = True
+        self.backoff_amps = 4.0          # engage when motor amps >= this (A)
+        self.backoff_ms = 400            # sustained this long before backing off
+        self.backoff_scale = 1.0         # live command multiplier (1=full, 0=fully relieved)
+        self.backoff_active = False
         self.creep_kick = 150.0          # CREEP anti-stiction breakaway level (command units)
         self.creep_kick_ms = 400         # CREEP kick duration (ms)
         self.logging = False             # characterization CSV logging on/off
@@ -154,6 +162,9 @@ class State:
                 "osc_center": self.osc_center, "osc_wave": self.osc_wave,
                 "expected": dict(self.expected), "mon": dict(self.mon),
                 "creep_kick": self.creep_kick, "creep_kick_ms": self.creep_kick_ms,
+                "backoff_on": self.backoff_on, "backoff_amps": self.backoff_amps,
+                "backoff_ms": self.backoff_ms, "backoff_scale": round(self.backoff_scale, 3),
+                "backoff_active": self.backoff_active,
                 "logging": self.logging, "log_name": self.log_name, "log_rows": self.log_rows,
                 "tripped": self.tripped, "trip_reason": self.trip_reason,
                 "trip_amps": self.trip_amps, "trip_ms": self.trip_ms,
@@ -401,6 +412,8 @@ class Worker(threading.Thread):
         lift_sum = 0.0
         lift_n = 0
         lift_results = []
+        backoff_scale = 1.0
+        backoff_since = None
         while not self._halt.is_set():
             try:
                 if self._ser is None:
@@ -419,6 +432,9 @@ class Worker(threading.Thread):
                     temp_trip, heat_budget, heat_now = self.state.temp_trip, self.state.heat_budget, self.state.heat_now
                     deadman = (now - self.state.last_contact) > DEADMAN_S
                     temps = self.state.tele.get("temp") or []
+                    at_limit = bool(self.state.tele.get("at_limit"))
+                    backoff_on = self.state.backoff_on
+                    backoff_amps, backoff_ms = self.state.backoff_amps, self.state.backoff_ms
                     creep_kick, creep_kick_ms = self.state.creep_kick, self.state.creep_kick_ms
                     do_log = self.state.logging
                     sweep_active = self.state.sweep_active
@@ -610,6 +626,29 @@ class Worker(threading.Thread):
 
                 if sweep_running or lift_running:            # routine drives itself; no deadman gate
                     momentary = False
+
+                # --- OVERTORQUE BACKOFF ------------------------------------ #
+                # When pinned at the current limit (amps high or AT-LIMIT flag),
+                # gently ramp the command DOWN to relieve torque so the drivetrain
+                # can't wind up and break free violently. Recovers slowly once
+                # relieved. Suppressed during the deliberate sweep / lift test.
+                if backoff_on and not sweep_running and not lift_running:
+                    overt = (amps is not None and amps >= backoff_amps) or at_limit
+                    if overt:
+                        if backoff_since is None:
+                            backoff_since = now
+                        elif (now - backoff_since) * 1000.0 >= backoff_ms:
+                            backoff_scale = max(0.0, backoff_scale - BACKOFF_DOWN)
+                    else:
+                        backoff_since = None
+                        if backoff_scale < 1.0:
+                            backoff_scale = min(1.0, backoff_scale + BACKOFF_UP)
+                    src = src * backoff_scale
+                else:
+                    backoff_since = None
+                    if backoff_scale < 1.0:                   # recover when not applicable
+                        backoff_scale = min(1.0, backoff_scale + BACKOFF_UP)
+
                 if estop or tripped or not armed:
                     desired = 0.0
                 elif momentary and deadman:
@@ -662,6 +701,8 @@ class Worker(threading.Thread):
                     self.state.heat_now = heat_now
                     self.state.mode = "momentary" if momentary else "latched"
                     self.state.intent = intent
+                    self.state.backoff_scale = backoff_scale
+                    self.state.backoff_active = backoff_scale < 0.999
                     if amps_raw is not None:
                         decode("?A", amps_raw, self.state.tele)
                     if aux_query is not None:
@@ -834,6 +875,12 @@ class Handler(BaseHTTPRequestHandler):
             with st.lock:
                 st.temp_trip = clamp(self._num(q, "temp", st.temp_trip), 0, 150)
                 st.heat_budget = clamp(self._num(q, "heat", st.heat_budget), 0, 100000)
+            self._json({"ok": True})
+        elif u.path == "/api/backoff":
+            with st.lock:
+                st.backoff_on = q.get("on", ["1" if st.backoff_on else "0"])[0] == "1"
+                st.backoff_amps = clamp(self._num(q, "amps", st.backoff_amps), 0.1, 200)
+                st.backoff_ms = int(clamp(self._num(q, "ms", st.backoff_ms), 50, 10000))
             self._json({"ok": True})
         elif u.path == "/api/cap":
             with st.lock:
