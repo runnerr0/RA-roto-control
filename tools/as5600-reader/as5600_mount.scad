@@ -19,7 +19,9 @@
 part = "assembly";        // "carrier" | "holder" | "gauge" | "assembly"
 
 /* ---------- the gap (built into the holder bosses) ---------- */
-air_gap       = 1.2;      // magnet top -> board bottom (chip). AS5600 + 5mm magnet: keep ~1-1.5mm.
+air_gap       = 2.5;      // magnet top -> board chip-side PCB surface (where the bosses hold it).
+                          // The chip body protrudes ~1.5mm toward the magnet -> ~1mm chip clearance,
+                          // die ~1.3mm from the magnet. Chip-down = best field for the 5mm magnet.
 mount_rise    = 22;       // [MEASURE] L-bracket face -> magnet plane, along the shaft axis
 
 /* ---------- shaft (rotating) ---------- */
@@ -42,8 +44,8 @@ set_screw_z   = 8;
 /* ---------- AS5600 board (23 x 23, chip centered, 4 corner holes) ---------- */
 board_sz      = 23.0;
 board_th      = 1.6;
-board_hole_sp = 16.5;     // [MEASURE] corner mounting-hole spacing (square, both axes)
-board_hole_d  = 3.2;      // board mounting-hole diameter
+board_hole_sp = 16.0;     // [MEASURE] corner mounting-hole spacing (square, both axes)
+board_hole_d  = 3.5;      // board mounting-hole diameter
 chip_win      = 12;       // central open window (chip sees magnet) — clears the SOIC-8
 
 /* ---------- standoffs / ring / arm / foot ---------- */
