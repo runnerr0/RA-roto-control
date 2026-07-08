@@ -37,7 +37,10 @@ magnet_recess = 0.3;
 /* ---------- register pilot + shoulder (the spacer interface) ---------- */
 pilot_d       = 11.0;     // pilot the holder cups over (> magnet, gives a clean register)
 pilot_h       = 7.0;      // pilot height above the shoulder (magnet pocket + register length)
-hub_fit       = 0.5;      // radial running clearance (ABS-friendly): holder bore over pilot
+hub_fit       = 0.25;     // radial running clearance holder bore over pilot. TIGHT on purpose: this
+                          //   register centers the chip over the magnet (both parts printed, so ABS
+                          //   shrinkage cancels). ~0.5mm total slop -> spins yet stays concentric.
+                          //   If it binds, sand the pilot lightly or bump to 0.3.
 hub_wall      = 2.6;      // holder hub wall
 
 /* ---------- AS5600 board (23 x 23, chip centered, holes 16mm c-c, 3.5mm) ---------- */
