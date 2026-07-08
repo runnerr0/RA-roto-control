@@ -78,9 +78,26 @@ pio run -e olimex_poe_iso -t upload  # flash
 pio device monitor                   # serial console
 ```
 
+Host control console (Python, no ESP32 needed — `pip install pyserial`):
+
+```bash
+python3 tools/roto-bench/roto_bench.py               # web console at http://127.0.0.1:8791
+python3 tools/roto-bench/roto_bench.py --sim         # preview the whole UI with no hardware
+python3 tools/roto-bench/roto_bench.py --lan         # bind 0.0.0.0 for the /remote phone view
+python3 tools/roto-bench/roto_bench.py --encoder PORT --gear 1.0   # optional AS5600 closed-loop RPM
+```
+
 ## Project Status
 
-**Phase 0 — Planning + firmware scaffold (current).** Decisions locked; firmware compiles clean for the
-ESP32-POE-ISO with the full serial control core, Art-Net/sACN parsers, safety/fail-safe, and a minimal
-web dashboard. Nothing has run on hardware yet. Next: bench bring-up — MAX3232 wiring, RS232 loopback,
-then live `!G` + telemetry against the HDC2450. See `docs/ARCHITECTURE.md` → Roadmap.
+**Serial control + safety proven on hardware — via the host console; ESP32 firmware still scaffold.**
+Decisions locked. The Python **control console** (`tools/roto-bench/`) has matured into a full-featured
+run-time control surface and drives Motor 1 over `!G` on the real HDC2450 with a **current governor**
+(feathers command under the limit instead of tripping), a **soft-stop** (halts every mode incl. DRIFT),
+an **enforced + displayed speed cap**, layered auto-trip (overcurrent/stall, temperature, I²t),
+control-drift detection, percentage UI, HOLD/CREEP effort control, pop-out dashboards (`/graphs`,
+`/stats`), a phone view (`/remote` + `--lan`), config backup/restore, spacebar E-STOP, and a `--sim`
+no-hardware preview. **Optional AS5600 encoder** (`tools/as5600-reader/`) adds closed-loop fixture RPM
+(shaft RPM ÷ gear ratio) and a **TRUE STALL** trip. Telemetry, `ALIM`/`ATGA` config, and the `^RWD`
+watchdog are validated. The **ESP32-POE-ISO firmware** (the product — adds Ethernet/PoE + DMX/Art-Net/sACN)
+compiles clean but has not run on hardware; next is porting the proven console logic into
+`SerialController`/`SafetyStage`. See `docs/ARCHITECTURE.md` → Roadmap.

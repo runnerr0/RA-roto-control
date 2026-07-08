@@ -63,17 +63,29 @@ bench control. Require `pyserial`.
 - **[`tools/roto-setup/`](tools/roto-setup/)** — config tool. Read (`--audit`) or write + verify
   (`--apply`, RAM by default) controller configuration from JSON manifests. **Config-only: never issues a
   motor command.** As-found config catalogs live under `captures/`.
-- **[`tools/roto-bench/`](tools/roto-bench/)** — a localhost web **control console** (`roto_bench.py` +
-  `ui.html`). Drives Motor 1 over serial with named run modes (**JOG / CRUISE / DRIFT / HOLD**, DRIFT =
-  auto slow-sweep patterns), layered safety (arm gate, command cap + slew, browser deadman, E-STOP,
-  **overcurrent/stall + temperature + I²t auto-trip**, **control-drift detection**), live telemetry +
-  motion/load graphs + alerts, and an Advanced live profile editor. **Also a viable standalone run-time
-  control path** for a self-contained piece — see [`tools/roto-bench/README.md`](tools/roto-bench/README.md).
+- **[`tools/roto-bench/`](tools/roto-bench/)** — a full-featured web **control console** (`roto_bench.py` +
+  `ui.html`). Drives Motor 1 over serial with named run modes (**JOG / CRUISE / DRIFT / HOLD**; DRIFT =
+  auto slow-sweep patterns, now explicit Run/Stop) and a **HOLD/CREEP** effort control. Layered safety: arm
+  toggle, an enforced-and-displayed **speed cap** in every mode, slew, browser deadman, **spacebar E-STOP**,
+  a **current governor** (default on — feathers command to hold amps just under the limit instead of
+  tripping), a **soft-stop** that halts every mode (incl. DRIFT), plus **overcurrent/stall + temperature +
+  I²t auto-trip** and **control-drift detection**. UI is in **percentages** with center-zero sliders,
+  comprehensive hover-help, and an operator guide at `/guide`; **pop-out** dashboards (`/graphs`, `/stats`)
+  drive a second screen, `--lan` + `/remote` give a phone view, and **config backup/restore** snapshots the
+  controller. A **`--sim` preview mode** runs the whole UI with no hardware. **Also a viable standalone
+  run-time control path** for a self-contained piece — see [`tools/roto-bench/README.md`](tools/roto-bench/README.md).
+- **[`tools/as5600-reader/`](tools/as5600-reader/)** — optional AS5600 magnetic-encoder add-on for
+  **closed-loop** feedback. A small Arduino/ESP32 (`as5600_reader.ino`) bridges the I²C encoder to USB
+  serial; the console reads real **fixture RPM** (shaft RPM ÷ a configurable gear ratio) and adds a
+  **TRUE STALL** trip (commanded but the shaft isn't turning — a check open-loop current alone can't make).
+  Ships with a parametric 3D-printed nested self-spacing mount (`as5600_mount.scad` + STLs). See
+  [`tools/as5600-reader/README.md`](tools/as5600-reader/README.md).
 
 ```bash
 pip install pyserial
 python3 tools/roto-setup/roto_setup.py --audit      # read controller config (safe)
 python3 tools/roto-bench/roto_bench.py              # web console at http://127.0.0.1:8791
+python3 tools/roto-bench/roto_bench.py --sim        # try the whole UI with no hardware
 ```
 
 > **Safety:** the bench console commands a real 2×150 A motor controller. Power the motor from a
@@ -91,10 +103,13 @@ python3 tools/roto-bench/roto_bench.py              # web console at http://127.
 
 ## Status
 
-**Serial control + safety proven on hardware — via the host console.** Motor 1 runs over `!G` from the
-[control console](tools/roto-bench/README.md) with a 5 A current limit and layered auto-trip protection
-(overcurrent/stall, temperature, I²t) plus control-drift detection. Telemetry, `ALIM`/`ATGA` config, and
-the `^RWD` watchdog are all validated. The legacy DMX→analog rig is reverse-engineered in
+**Serial control + safety proven on hardware — via the host console.** The
+[control console](tools/roto-bench/README.md) has matured into a full-featured run-time control surface:
+Motor 1 runs over `!G` behind a current governor, soft-stop, an enforced speed cap, and layered auto-trip
+protection (overcurrent/stall, temperature, I²t) plus control-drift detection. The optional
+[AS5600 encoder](tools/as5600-reader/README.md) adds closed-loop RPM feedback and a true-stall trip.
+Telemetry, `ALIM`/`ATGA` config, and the `^RWD` watchdog are all validated. New console/encoder features
+are proven in `--sim` and on the bench; the legacy DMX→analog rig is reverse-engineered in
 [`docs/LEGACY-WIRING.md`](docs/LEGACY-WIRING.md).
 
 The **ESP32-POE-ISO firmware** (the product — adds Ethernet/PoE + DMX/Art-Net/sACN) compiles clean;

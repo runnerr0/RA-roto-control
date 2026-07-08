@@ -82,10 +82,15 @@ config, calibration-free diagnostics, OTA.
 The serial command path, telemetry, and layered safety model are **proven on real hardware today** —
 but via the **host control console** ([`tools/roto-bench/`](../tools/roto-bench/)) over USB, not yet the
 ESP32. The console validated `!G` control, `?…` telemetry scaling, the `^RWD` watchdog, `ALIM`/`ATGA`
-config, and the stall/temperature/I²t trips before any of it goes into firmware. It also stands on its
-own as a runtime control path for a self-contained piece (DRIFT patterns, no DMX needed). The ESP32
-firmware is the **product** target — adds wired Ethernet/PoE, isolation, and DMX/Art-Net/sACN input —
-and reuses the same command/telemetry/safety logic the console proved. The ESP32 build is a
+config, and the stall/temperature/I²t trips before any of it goes into firmware — and has since matured
+into a full run-time control surface (a **current governor** that feathers command under the limit
+instead of tripping, a **soft-stop** across every mode, an **enforced + displayed speed cap**, and
+control-drift detection). The optional **AS5600 magnetic encoder** ([`tools/as5600-reader/`](../tools/as5600-reader/))
+closes the loop: real **fixture RPM** (shaft RPM ÷ gear ratio) and a **true-stall** trip (commanded but
+the shaft isn't turning) — the unambiguous jam-vs-hold check open-loop current alone can't make. It also
+stands on its own as a runtime control path for a self-contained piece (DRIFT patterns, no DMX needed).
+The ESP32 firmware is the **product** target — adds wired Ethernet/PoE, isolation, and DMX/Art-Net/sACN
+input — and reuses the same command/telemetry/safety logic the console proved. The ESP32 build is a
 **follow-up component, pending parts** — the console (run on an always-on host) covers running the piece
 in the meantime.
 
@@ -93,7 +98,8 @@ in the meantime.
 
 - **Phase 0 — Planning + firmware scaffold.** ✅ Docs + serial control core, compiles clean.
 - **Phase 1 — Serial bench bring-up.** ✅ *(host console)* link check, `^RWD`, telemetry.
-- **Phase 2 — Motor-in-the-loop.** ✅ *(host console)* live `!G`, direction/speed/slew, 5 A limit, trips.
+- **Phase 2 — Motor-in-the-loop.** ✅ *(host console)* live `!G`, direction/speed/slew, 5 A limit, trips,
+  current governor, soft-stop, enforced speed cap, and optional AS5600 closed-loop RPM + true-stall.
   → **Next:** port the proven command/telemetry/safety logic into ESP32 `SerialController`/`SafetyStage`.
 - **Phase 3 — Protocols + web UI (ESP32).** Art-Net + sACN + optional DMX512; dashboard; override; OTA.
 - **Phase 4 — Telemetry hardening.** Fault-flag decoding + reconnect (mostly validated on the console).
@@ -110,4 +116,5 @@ in the meantime.
 ## Still open before ESP32 bring-up
 - Verify GPIO13/14 (UART) free on the exact Olimex ESP32-POE-ISO revision.
 - Whether physical DMX512 input is needed for v1 or Art-Net/sACN only.
-- Consider an **encoder** (closed loop) for unambiguous jam-vs-hold detection.
+- Whether the ESP32 build carries the optional **AS5600 encoder** (closed loop, unambiguous
+  jam-vs-hold) — already proven on the console via [`tools/as5600-reader/`](../tools/as5600-reader/).
