@@ -1,132 +1,127 @@
-// as5600_mount.scad — parametric mount for the AS5600 encoder on the roto motor shaft.
+// as5600_mount.scad — AS5600 encoder mount for the roto shaft. NESTED / self-spacing design.
 //
-// THE AIR GAP IS BUILT INTO THE SENSOR HOLDER, not the L-bracket. Four standoff bosses
-// (matching the board's 4 corner holes) hold the AS5600 chip-side-down at exactly `air_gap`
-// above the magnet, center open (no plastic between chip and magnet). The L-bracket only
-// RETAINS the holder (fixed holes) — it never sets the gap.
+// The two printed parts SET THE GAP BY NESTING TOGETHER — no external reference:
+//   - MAGNET CARRIER grips the shaft, holds the 5x2 diametric magnet on-axis on a raised PILOT,
+//     and has a SHOULDER (the step where the pilot meets the wider body).
+//   - SENSOR HOLDER cups over the pilot (bore = running clearance) and its hub bottom SEATS ON the
+//     shoulder. That seat is the spacer: it fixes the board exactly `air_gap` above the magnet.
+//     The carrier spins under it; they rub at the seat (slow roto -> fine; a thrust washer/bearing
+//     can drop onto the pilot later). The board rides on the holder because the holder rides the
+//     carrier, so the gap stays constant even if the shaft wobbles.
 //
-// Three printed parts:
-//   1) MAGNET CARRIER — set-screw cap; holds the 5x2 diametric magnet on the shaft end, on-axis.
-//   2) SENSOR HOLDER  — ring + 4 standoff bosses at the board height (built-in gap) + arm to a
-//      fixed-hole L-bracket foot.
-//   3) GAP GAUGE      — shim exactly `air_gap` thick to confirm the gap on assembly.
+// The L-BRACKET only stops the holder from spinning (anti-rotation ear) — use any spare bracket.
 //
-// Frame: shaft axis = Z; magnet TOP face = z 0; board bottom (chip) = z `air_gap`;
-//        L-bracket mounting face = z `-mount_rise`.
-//
-// >>> [MEASURE]: mount_rise, board_hole_sp, magnet is DIAMETRIC (poles across the dia). <<<
+// Frame: shaft axis = Z; magnet TOP face = z 0; carrier shoulder = z -pilot_h; board face = z air_gap.
 
 part = "assembly";        // "carrier" | "holder" | "gauge" | "assembly"
 
-/* ---------- the gap (built into the holder bosses) ---------- */
-air_gap       = 2.5;      // magnet top -> board chip-side PCB surface (where the bosses hold it).
-                          // The chip body protrudes ~1.5mm toward the magnet -> ~1mm chip clearance,
-                          // die ~1.3mm from the magnet. Chip-down = best field for the 5mm magnet.
-mount_rise    = 22;       // [MEASURE] L-bracket face -> magnet plane, along the shaft axis
+/* ---------- the gap (set by the nested seat) ---------- */
+air_gap       = 2.5;      // magnet top -> board chip-side face. Chip body pokes ~1.5mm in -> die ~1.3mm off.
 
 /* ---------- shaft (rotating) ---------- */
 shaft_d       = 12.7;     // [MEASURE] 1/2" tip
 shaft_engage  = 16;
 shaft_fit     = 0.35;
+wall          = 3.2;
+set_screw_d   = 3.2;      // M3 grub
+set_screw_z   = 8;
 
-/* ---------- magnet (5 x 2, MUST be diametric) ---------- */
+/* ---------- magnet (5 x 2 DIAMETRIC) ---------- */
 magnet_d      = 5.0;
 magnet_th     = 2.0;
 magnet_fit    = 0.15;
-magnet_floor  = 1.0;
 magnet_recess = 0.3;
 
-/* ---------- carrier body ---------- */
-wall          = 3.2;
-set_screw_d   = 3.2;
-set_screw_z   = 8;
+/* ---------- register pilot + shoulder (the spacer interface) ---------- */
+pilot_d       = 11.0;     // pilot the holder cups over (> magnet, gives a clean register)
+pilot_h       = 7.0;      // pilot height above the shoulder (magnet pocket + register length)
+hub_fit       = 0.4;      // radial running clearance: holder bore over pilot
+hub_wall      = 2.6;      // holder hub wall
 
-/* ---------- AS5600 board (23 x 23, chip centered, 4 corner holes) ---------- */
+/* ---------- AS5600 board (23 x 23, chip centered, holes 16mm c-c, 3.5mm) ---------- */
 board_sz      = 23.0;
 board_th      = 1.6;
-board_hole_sp = 16.0;     // [MEASURE] corner mounting-hole spacing (square, both axes)
-board_hole_d  = 3.5;      // board mounting-hole diameter
-chip_win      = 12;       // central open window (chip sees magnet) — clears the SOIC-8
+board_hole_sp = 16.0;     // corner mounting-hole spacing
+board_hole_d  = 3.5;
+boss_screw_d  = 2.9;      // self-tap M3 into the board bosses
 
-/* ---------- standoffs / ring / arm / foot ---------- */
-boss_d        = 6.5;      // standoff boss OD at each corner hole
-boss_screw_d  = 2.9;      // self-tap for M3 (or clearance for a nut)
-ring_th       = 3.0;      // ring thickness (below the magnet plane, around the carrier)
-carrier_clear = 1.2;      // radial clearance so the carrier spins free in the ring
-arm_w         = 12;
-arm_th        = 6;
-foot_l        = 30;
-foot_w        = 22;
-foot_th       = 5;
-foot_hole_d   = 5.4;      // M5 clearance, FIXED holes
-foot_hole_sp  = 18;
+/* ---------- anti-rotation ear (to a spare L-bracket) ---------- */
+ear_len       = 26;
+ear_w         = 12;
+ear_th        = 5;
+ear_hole_d    = 5.4;      // M5 clearance
 
 eps = 0.02;  $fn = 96;
-carrier_h  = shaft_engage + magnet_floor + magnet_th;
 carrier_od = shaft_d + 2*wall;
-ring_bore  = carrier_od + 2*carrier_clear;
+body_h     = shaft_engage;                 // native carrier body height (grips the shaft)
+carrier_h  = body_h + pilot_h;             // native total
+hub_bore   = pilot_d + 2*hub_fit;
+hub_od     = pilot_d + 2*hub_fit + 2*hub_wall;
 hs         = board_hole_sp/2;
-tip_z      = -(magnet_th + magnet_floor) + magnet_recess;
+plate_d    = board_sz*sqrt(2)*0.5 + 3;     // disc big enough to reach the corner bosses
+plate_th   = 3.0;
 
-// ===================================================================== //
+// ================= MAGNET CARRIER (native: base z 0, pilot up) ================= //
 module magnet_carrier() {
   difference() {
-    cylinder(d = carrier_od, h = carrier_h);
-    translate([0,0,-eps]) cylinder(d = shaft_d + shaft_fit, h = shaft_engage + eps);
+    union() {
+      cylinder(d = carrier_od, h = body_h);                       // body (shoulder = top face)
+      translate([0,0,body_h]) cylinder(d = pilot_d, h = pilot_h); // register pilot
+    }
+    translate([0,0,-eps]) cylinder(d = shaft_d + shaft_fit, h = shaft_engage + eps);         // shaft bore
     translate([0,0, carrier_h - magnet_th - magnet_recess])
-      cylinder(d = magnet_d + magnet_fit, h = magnet_th + magnet_recess + eps);
-    translate([0,0,set_screw_z]) rotate([0,90,0])
-      cylinder(d = set_screw_d, h = shaft_d/2 + wall + eps);
+      cylinder(d = magnet_d + magnet_fit, h = magnet_th + magnet_recess + eps);              // magnet pocket
+    translate([0,0,set_screw_z]) rotate([0,90,0]) cylinder(d = set_screw_d, h = carrier_od/2 + eps); // set screw
   }
 }
 
+// ================= SENSOR HOLDER (assembly coords: seats at z -pilot_h) ================= //
 module sensor_holder() {
-  // ring around the carrier top, at/just below the magnet plane
-  translate([0,0,-ring_th]) difference() {
-    hull() for (dx=[-1,1], dy=[-1,1]) translate([dx*hs, dy*hs, 0]) cylinder(d = boss_d, h = ring_th);
-    translate([0,0,-eps]) cylinder(d = ring_bore, h = ring_th + 2*eps);
+  hub_bot = -pilot_h;                       // hub bottom rests on the carrier shoulder
+  plate_bot = air_gap - plate_th;
+  // hub tube (open bore so the chip sees the magnet)
+  translate([0,0,hub_bot]) difference() {
+    cylinder(d = hub_od, h = plate_bot - hub_bot + eps);
+    translate([0,0,-eps]) cylinder(d = hub_bore, h = plate_bot - hub_bot + 3*eps);
   }
-  // four standoff bosses: the BUILT-IN gap. Top at z = air_gap (board bottom, chip-down)
-  for (dx=[-1,1], dy=[-1,1]) translate([dx*hs, dy*hs, -ring_th]) difference() {
-    cylinder(d = boss_d, h = ring_th + air_gap);
-    translate([0,0, ring_th + air_gap - 5]) cylinder(d = boss_screw_d, h = 5 + eps);   // screw pocket
-  }
-  // arm + fixed-hole foot down to the L-bracket (retention only)
-  ax = hs + boss_d/2;
-  hull() {
-    translate([-ax, -arm_w/2, air_gap-arm_th]) cube([eps, arm_w, arm_th]);
-    translate([-ax-6, -arm_w/2, -mount_rise]) cube([eps, arm_w, arm_th]);
-  }
-  translate([-ax-6-arm_th, 0, 0]) linear_extrude(air_gap+eps) hull(){        // brace to the ring
-    translate([0,-arm_w/2]) square([arm_th, arm_w]);
-    translate([arm_th, -arm_w/4]) square([eps, arm_w/2]); }
+  // board plate: disc + central window + 4 corner bosses (board sits chip-down at z air_gap)
   difference() {
-    translate([-ax-6-foot_l, -foot_w/2, -mount_rise]) cube([foot_l, foot_w, foot_th]);
-    for (dy=[-foot_hole_sp/2, foot_hole_sp/2])
-      translate([-ax-6-foot_l/2, dy, -mount_rise-eps]) cylinder(d = foot_hole_d, h = foot_th + 2*eps);
+    union() {
+      translate([0,0,plate_bot]) cylinder(d = plate_d, h = plate_th);
+      for (dx=[-1,1], dy=[-1,1]) translate([dx*hs, dy*hs, plate_bot]) cylinder(d = 6.5, h = plate_th);
+    }
+    translate([0,0,plate_bot-eps]) cylinder(d = hub_bore, h = plate_th + 2*eps);             // chip window
+    for (dx=[-1,1], dy=[-1,1]) translate([dx*hs, dy*hs, air_gap-4]) cylinder(d = boss_screw_d, h = 4+eps); // board screws
+  }
+  // anti-rotation ear out to a spare L-bracket (retention only, NOT the gap)
+  difference() {
+    hull() {
+      translate([plate_d/2-2, -ear_w/2, plate_bot]) cube([eps, ear_w, plate_th]);
+      translate([plate_d/2-2+ear_len, -ear_w/2, plate_bot]) cube([ear_th, ear_w, plate_th]);
+    }
+    translate([plate_d/2-2+ear_len-ear_th/2, 0, plate_bot-eps]) cylinder(d = ear_hole_d, h = plate_th + 2*eps);
   }
 }
 
-module gap_gauge() {
-  gw = magnet_d + 12;
+module gap_gauge() {  // shim to confirm the seated gap
+  gw = pilot_d + 10;
   difference() {
     translate([-gw/2,-gw/2,0]) cube([gw, gw, air_gap]);
-    translate([0,0,-eps]) cylinder(d = magnet_d + 1, h = air_gap + 2*eps);
+    translate([0,0,-eps]) cylinder(d = pilot_d + 0.6, h = air_gap + 2*eps);
     translate([-1.5,0,-eps]) cube([3, gw, air_gap + 2*eps]);
   }
 }
 
-// ---- reference-only preview geometry ----
-module ghost_shaft()  { color("silver") translate([0,0, tip_z-30]) cylinder(d=shaft_d, h=30); }
-module ghost_magnet() { color("red")    translate([0,0,-magnet_th]) cylinder(d=magnet_d, h=magnet_th); }
-module ghost_board()  { color("green")  translate([-board_sz/2,-board_sz/2, air_gap]) cube([board_sz,board_sz,board_th]); }
-module ghost_brk()    { color("#888")   translate([-hs-boss_d/2-6-foot_l-3, -foot_w/2-2, -mount_rise-6]) cube([foot_l+6, foot_w+4, 6]); }
+// ---- preview ghosts ----
+module ghost_magnet() { color("red")   translate([0,0,-magnet_th]) cylinder(d=magnet_d, h=magnet_th); }
+module ghost_shaft()  { color("silver")translate([0,0,-carrier_h-20]) cylinder(d=shaft_d, h=carrier_h+20); }
+module ghost_board()  { color("green") translate([-board_sz/2,-board_sz/2, air_gap]) cube([board_sz,board_sz,board_th]); }
 
-if (part == "carrier")      translate([0,0,carrier_h]) rotate([180,0,0]) magnet_carrier();
-else if (part == "holder")  sensor_holder();
+if (part == "carrier")      magnet_carrier();
+else if (part == "holder")  translate([0,0, pilot_h]) sensor_holder();   // print seat-face down
 else if (part == "gauge")   gap_gauge();
 else {
-  translate([0,0, -(carrier_h - magnet_recess)]) magnet_carrier();
-  ghost_magnet(); %ghost_shaft(); %ghost_board(); %ghost_brk();
+  translate([0,0,-carrier_h]) magnet_carrier();   // magnet top -> z 0
+  ghost_magnet(); %ghost_shaft(); %ghost_board();
   sensor_holder();
 }
