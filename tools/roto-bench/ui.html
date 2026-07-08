@@ -235,6 +235,18 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
    <button class=barbtn id=popstats title="Open the live stats in a separate window — drag it to a second screen to monitor while you drive.">⧉ Pop out</button></div>
    <table id=tele></table></div>
 
+ <div class=card><b title="Optional AS5600 magnetic encoder via a small Arduino/ESP32 bridge (tools/as5600-reader). Adds real motion feedback — the console shows actual RPM and can catch a TRUE STALL (commanded but the shaft isn't turning), which open-loop current can't.">Encoder <span class=sub>(optional add-on)</span></b>
+  <div class=row>
+   <label class=sub title="Connect to the encoder bridge on the selected port."><input type=checkbox id=encon> enable</label>
+   <span class=sub>· port</span> <select id=encport class=cap title="Serial port of the AS5600->serial bridge (the Arduino/ESP32)."></select>
+   <button id=encref class=clr style="padding:8px 10px;font-size:12px" title="Rescan for serial ports.">↻</button>
+   <span class=sub>· gear</span> <input id=encratio class=num type=number min=0.1 step=0.1 value=1 title="Gear ratio: encoder-shaft revolutions per ONE fixture (big wheel) revolution. The console divides shaft RPM by this to show fixture RPM.">
+   <span class=sub>: 1</span>
+   <button id=encset class=clr title="Apply the enable / port / gear-ratio settings.">Apply</button>
+  </div>
+  <div id=encdbg class=sub style="margin-top:8px;font-family:ui-monospace,monospace;white-space:pre-wrap;min-height:16px">encoder off</div>
+ </div>
+
  <div class=card><div class="row spread"><b>Characterization log</b>
    <span><span class=sub>rate</span> <select id=lograte class=cap title="Sampling rate. Aggressive (15 Hz) for fine tuning; motor amps update every tick, slower telemetry at its own rate."><option value=3>5 Hz</option><option value=1>15 Hz (aggressive)</option></select>
    <button id=logbtn class=zero title="Start or stop writing the telemetry + events CSV to tools/roto-bench/logs/.">● Start logging</button>
@@ -425,6 +437,14 @@ $('cfgfile').onchange=e=>{var f=e.target.files[0];if(!f)return;var rd=new FileRe
 document.addEventListener('keydown',e=>{var tg=(e.target&&e.target.tagName)||'';
  if(tg==='INPUT'||tg==='TEXTAREA'||tg==='SELECT')return;
  if(e.keyCode===32||e.key===' '||e.code==='Space'){e.preventDefault();$('es').click()}});
+// ---- optional AS5600 encoder: enable / port / gear ratio / debug ----
+let encSynced=false;
+function loadEncPorts(){api('/api/serial_ports').then(r=>{if(!r||!r.ports)return;var sel=$('encport'),cur=sel.value;
+ sel.innerHTML=r.ports.length?r.ports.map(p=>'<option value="'+p+'">'+p+'</option>').join(''):'<option value="">(no ports found)</option>';
+ if(cur)sel.value=cur;})}
+$('encref').onclick=loadEncPorts;
+$('encset').onclick=()=>api('/api/encoder?on='+($('encon').checked?1:0)+'&port='+encodeURIComponent($('encport').value)+'&ratio='+$('encratio').value);
+$('encon').onchange=()=>$('encset').click();
 $('cset').onclick=()=>api('/api/creep?kick='+toRaw($('ckick').value)+'&ms='+$('ckms').value);
 $('logbtn').onclick=()=>api('/api/log?on='+((S&&S.logging)?0:1)+'&div='+$('lograte').value);
 
@@ -544,6 +564,8 @@ function deriveAlerts(s,t){active={};
  if(!s.connected)raise('conn','crit','NO SERIAL — controller link lost');
  if(s.estop)raise('estop','crit','E-STOP latched');
  if(s.gov_active)raise('gov','warn','Current governor holding command to '+Math.round((s.gov_scale!=null?s.gov_scale:1)*100)+'% to stay under the limit');
+ if(s.enc_stall)raise('encstall','crit','TRUE STALL — commanded but the encoder shows no shaft motion');
+ if(s.enc_enabled&&!s.enc_present)raise('encoff','warn','Encoder enabled but no data — check the bridge USB/port/wiring');
  if(s.tripped)raise('trip','crit','TRIP — '+(s.trip_reason||'stall'));
  if(s.mode==='momentary'&&s.deadman&&s.armed)raise('dead','warn','Deadman — no control contact, forcing 0');
  (t.faults||[]).forEach(f=>raise('flt_'+f,'crit','Controller fault: '+f));
@@ -610,6 +632,14 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
   $('dA_t').value=s.drift_ta;$('dB_t').value=s.drift_tb;$('dRamp').value=s.drift_ramp;paintDrift();}
  if(!govSynced&&s.gov_on!=null){govSynced=true;                 // reflect governor state in the toggle
   $('govon').checked=!!s.gov_on;if(s.gov_frac!=null)$('govfrac').value=Math.round(s.gov_frac*100);}
+ if(!encSynced&&s.enc_enabled!=null){encSynced=true;           // reflect encoder settings + load ports
+  $('encon').checked=!!s.enc_enabled;if(s.enc_ratio!=null)$('encratio').value=s.enc_ratio;
+  loadEncPorts();if(s.enc_port)setTimeout(()=>{$('encport').value=s.enc_port},300);}
+ if(!s.enc_enabled){$('encdbg').textContent='encoder off — enable and pick the port'}
+ else{var est=s.enc_present?(s.enc_stall?'⚠ TRUE STALL — shaft not moving':'● live'):'… waiting for data (check port / USB / wiring)';
+  $('encdbg').innerHTML=est+' · magnet '+(s.enc_mag?'OK':'<span class=sev-crit>not detected</span>')
+   +'\nshaft '+D(s.enc_rpm,0)+' RPM  →  fixture '+D(s.enc_fixture_rpm,0)+' RPM   (÷ '+D(s.enc_ratio,1)+')  ·  pos '+D(s.enc_pos,0)+' cts'
+   +'\nraw: '+D(s.enc_line,'—')}
  // history + heuristics
  const amps=(t.amps_m1!=null)?t.amps_m1:0,v=(t.volts_batt!=null)?t.volts_batt:0;
  const he={a:amps,ap:s.applied};AGSER.forEach(sr=>{if(sr[0]!=='a')he[sr[0]]=sr[3](t)});
@@ -654,7 +684,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
   ['Supply amps',(t.batt_amps!=null?t.batt_amps.toFixed(1)+' A'+(t.batt_amps<-0.2?' <span style="color:#3fb950">(regen)</span>':''):'—')],
   ['Power out',(t.power!=null?(t.power/10).toFixed(0)+' %':'—')],
   ['Ctrl command',(t.mcmd!=null?toPct(t.mcmd)+' %':'—')],
-  ['Speed',(t.speed!=null?t.speed+' RPM'+(t.speed==0?' <span class=sub>(needs encoder)</span>':''):'—')],
+  ['Speed',(s.enc_present?(D(s.enc_fixture_rpm,0)+' RPM <span class=sub>(fixture · encoder)</span>'):(t.speed!=null?t.speed+' RPM'+(t.speed==0?' <span class=sub>(needs encoder)</span>':''):'—'))],
   ['Battery',(t.volts_batt!=null?t.volts_batt.toFixed(1)+' V':'—')],['5V out',(t.volts_5v!=null?t.volts_5v.toFixed(2)+' V':'—')],
   ['Temp °C',(t.temp?t.temp.join(' / '):'—')],
   ['Status',(t.status&&t.status.length?t.status.join(' '):'—')],

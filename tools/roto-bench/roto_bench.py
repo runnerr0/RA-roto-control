@@ -65,6 +65,11 @@ HEAT_BASELINE = 2.0          # amps below which the I2t bucket leaks
 HEAT_BUDGET_DEFAULT = 600.0  # A^2*s; ~28 s at 5 A; 0 disables
 GOV_DOWN = 0.60              # governor: command-scale cut per tick per unit of over-ceiling error
 GOV_UP = 0.010               # governor: slow recovery per tick once back under the ceiling
+ENC_BAUD = 115200            # AS5600->serial bridge baud
+ENC_TIMEOUT = 1.5            # s; no encoder line for this long -> treat as absent
+ENC_STALL_CMD = 100          # true-stall only checked when commanding >= this (10%)
+ENC_STALL_RPM = 1.0          # shaft |rpm| below this = not moving
+ENC_STALL_MS = 1200          # commanded-but-not-moving this long -> TRUE STALL trip
 HOST, PORT = "127.0.0.1", 8791
 UI_FILE = Path(__file__).parent / "ui.html"
 PRESET_DIR = Path(__file__).parent / "presets"
@@ -128,6 +133,17 @@ class State:
         self.deadman = True
         self.tele = {}
         self.raw = {}
+        # AS5600 encoder (OPTIONAL add-on, enabled + debugged from the UI) — real motion feedback
+        self.enc_enabled = False         # user toggle: connect to the encoder port
+        self.enc_port = ""               # serial port of the AS5600->serial bridge
+        self.enc_ratio = 1.0             # gear ratio: encoder(shaft) revs per 1 fixture rev (>=1)
+        self.enc_present = False         # reader connected + reporting fresh lines
+        self.enc_rpm = 0.0               # signed SHAFT RPM from the AS5600
+        self.enc_pos = 0                 # cumulative counts (4096/rev of the shaft)
+        self.enc_mag = False             # magnet detected (AS5600 MD bit)
+        self.enc_stall = False           # TRUE STALL: commanded but shaft not moving
+        self.enc_last = 0.0              # time of the last encoder line (for staleness)
+        self.enc_line = ""               # raw last line, for the debug panel
         self.profile = {}                # last-read controller config values
         self.config_queue = []           # pending {key,idx,val} or {flash:True}
         self.config_log = []             # recent write results
@@ -184,6 +200,12 @@ class State:
                 "temp_trip": self.temp_trip, "heat_budget": self.heat_budget,
                 "heat_now": round(self.heat_now, 1), "amp_limit": round(live_lim, 1),
                 "connected": self.connected, "deadman": self.deadman,
+                "enc_enabled": self.enc_enabled, "enc_port": self.enc_port,
+                "enc_ratio": self.enc_ratio, "enc_present": self.enc_present,
+                "enc_rpm": round(self.enc_rpm, 1),
+                "enc_fixture_rpm": round(self.enc_rpm / self.enc_ratio, 2) if self.enc_ratio else 0.0,
+                "enc_pos": self.enc_pos, "enc_mag": self.enc_mag, "enc_stall": self.enc_stall,
+                "enc_line": self.enc_line,
                 "tele": dict(self.tele), "profile": dict(self.profile),
                 "config_log": list(self.config_log[:8]),
                 "sweep_active": self.sweep_active, "sweep_status": self.sweep_status,
@@ -321,6 +343,89 @@ def decode(query, value, tele):
             tele["at_limit"] = bool(f[0] & 0x20)
 
 
+class EncoderReader(threading.Thread):
+    """Reads an AS5600->USB-serial bridge on a second port and folds RPM/angle into state.
+
+    Line protocol (see tools/as5600-reader/as5600_reader.ino):
+        ANG=<0-4095> POS=<cumulative> RPM=<signed float> MAG=<0|1> STALL=<0|1>
+    Runs independently of the motor serial; reconnects on error. Purely a sensor —
+    it never commands the motor.
+    """
+    def __init__(self, state):
+        super().__init__(daemon=True)
+        self.state = state
+        self._ser = None
+        self._halt = threading.Event()
+
+    def stop(self):
+        self._halt.set()
+
+    def _close(self):
+        try:
+            if self._ser:
+                self._ser.close()
+        except Exception:
+            pass
+        self._ser = None
+
+    def run(self):
+        cur_port = None
+        while not self._halt.is_set():
+            with self.state.lock:
+                enabled = self.state.enc_enabled
+                want = self.state.enc_port
+            if not enabled or not want:                      # disabled -> idle, clear presence
+                if self._ser is not None:
+                    self._close(); cur_port = None
+                with self.state.lock:
+                    if self.state.enc_present:
+                        self.state.enc_present = False
+                        self.state.enc_rpm = 0.0
+                time.sleep(0.3)
+                continue
+            if self._ser is None or want != cur_port:        # (re)connect on enable / port change
+                self._close()
+                try:
+                    self._ser = serial.Serial(want, ENC_BAUD, timeout=1.0)
+                    cur_port = want
+                    time.sleep(0.2)
+                    self._ser.reset_input_buffer()
+                except (serial.SerialException, OSError) as e:
+                    with self.state.lock:
+                        self.state.enc_present = False
+                        self.state.enc_line = "open %s failed: %s" % (want, e)
+                    self._close(); cur_port = None
+                    time.sleep(1.0)
+                    continue
+            try:
+                line = self._ser.readline().decode("ascii", "replace").strip()
+            except (serial.SerialException, OSError):
+                with self.state.lock:
+                    self.state.enc_present = False
+                self._close(); cur_port = None
+                time.sleep(1.0)
+                continue
+            if not line:
+                continue
+            vals = {}
+            for tok in line.split():
+                if "=" in tok:
+                    k, v = tok.split("=", 1)
+                    vals[k] = v
+            with self.state.lock:
+                self.state.enc_line = line                   # raw, for the debug panel
+                if "RPM" in vals:
+                    try:
+                        self.state.enc_rpm = float(vals["RPM"])
+                        self.state.enc_pos = int(vals.get("POS", self.state.enc_pos))
+                    except ValueError:
+                        pass
+                    self.state.enc_mag = vals.get("MAG") == "1"
+                    self.state.enc_present = True
+                    self.state.enc_last = time.monotonic()   # matches the Worker clock
+        self._close()
+
+
 class Worker(threading.Thread):
     def __init__(self, state, port, sim=False):
         super().__init__(daemon=True)
@@ -442,6 +547,7 @@ class Worker(threading.Thread):
         drift_t0 = 0.0
         prev_mode = ""
         over_since = None
+        enc_stall_since = None
         kick_start = None
         logf = None
         log_tick = 0
@@ -476,6 +582,11 @@ class Worker(threading.Thread):
                 with self.state.lock:
                     target, cap = self.state.target, self.state.cap
                     stopped = self.state.stopped
+                    enc_present = self.state.enc_present
+                    enc_rpm = self.state.enc_rpm
+                    if enc_present and (now - self.state.enc_last) > ENC_TIMEOUT:
+                        enc_present = self.state.enc_present = False   # encoder went silent
+                        enc_rpm = self.state.enc_rpm = 0.0
                     run_mode = self.state.run_mode
                     drift_a, drift_ta = self.state.drift_a, self.state.drift_ta
                     drift_b, drift_tb, drift_ramp = self.state.drift_b, self.state.drift_tb, self.state.drift_ramp
@@ -535,6 +646,23 @@ class Worker(threading.Thread):
                                        f"for {trip_ms} ms")
                 elif gov_on or amps is None or amps < trip_amps:
                     over_since = None
+
+                # TRUE STALL (encoder): commanded but the shaft isn't turning. RUN intent
+                # only — HOLD/CREEP legitimately sit near 0 RPM. `applied` is last tick's
+                # command; this is the motion check open-loop current can't make.
+                true_stall = (enc_present and intent == "run" and armed and not stopped
+                              and abs(applied) >= ENC_STALL_CMD and abs(enc_rpm) < ENC_STALL_RPM)
+                if true_stall:
+                    if enc_stall_since is None:
+                        enc_stall_since = now
+                    elif (now - enc_stall_since) * 1000.0 >= ENC_STALL_MS and not trip_reason:
+                        trip_reason = ("True stall: commanded %d%% but the encoder reads %.1f RPM"
+                                       % (int(round(applied / 10.0)), enc_rpm))
+                else:
+                    enc_stall_since = None
+                if self.state.enc_stall != true_stall:
+                    with self.state.lock:
+                        self.state.enc_stall = true_stall
 
                 if trip_reason and not tripped:
                     with self.state.lock:
@@ -976,6 +1104,19 @@ class Handler(BaseHTTPRequestHandler):
                     st.log_div = int(clamp(self._num(q, "div", st.log_div), 1, 30))
                 st.logging = q.get("on", ["1" if st.logging else "0"])[0] == "1"
             self._json({"ok": True})
+        elif u.path == "/api/encoder":               # optional AS5600 add-on: enable / port / gear ratio
+            with st.lock:
+                if "port" in q:
+                    st.enc_port = q.get("port", [""])[0]
+                if "ratio" in q:
+                    st.enc_ratio = clamp(self._num(q, "ratio", st.enc_ratio), 0.1, 10000)
+                st.enc_enabled = q.get("on", ["1" if st.enc_enabled else "0"])[0] == "1"
+            self._json({"ok": True})
+        elif u.path == "/api/serial_ports":          # candidate ports for the encoder dropdown
+            ports = []
+            for pat in PORT_GLOBS:
+                ports += glob.glob(pat)
+            self._json({"ports": sorted(set(ports))})
         elif u.path == "/api/drift":
             with st.lock:
                 st.drift_a = clamp(self._num(q, "a", st.drift_a), -1000, 1000)
@@ -1163,6 +1304,11 @@ def main():
                          "(default %s = this machine only)" % HOST)
     ap.add_argument("--lan", action="store_true",
                     help="shortcut for --host 0.0.0.0 (expose to the local network)")
+    ap.add_argument("--encoder", metavar="PORT",
+                    help="optional AS5600->serial bridge port to enable at boot "
+                         "(also enable/pick it live in the UI)")
+    ap.add_argument("--gear", type=float, default=1.0,
+                    help="gear ratio: encoder-shaft revs per fixture rev (default 1.0)")
     args = ap.parse_args()
     if args.lan:
         args.host = "0.0.0.0"
@@ -1179,8 +1325,13 @@ def main():
             state.baseline = json.loads(mr.read_text())
         except (OSError, ValueError):
             pass
+    state.enc_ratio = clamp(args.gear, 0.1, 10000)
+    if args.encoder:
+        state.enc_port, state.enc_enabled = args.encoder, True
     worker = Worker(state, port, sim=args.sim)
     worker.start()
+    encoder = EncoderReader(state)            # always running; idle until enabled in the UI
+    encoder.start()
 
     Handler.state = state
     httpd = ThreadingHTTPServer((args.host, args.webport), Handler)
@@ -1200,6 +1351,7 @@ def main():
         print("\nstopping motor and shutting down...")
     finally:
         worker.stop()
+        encoder.stop()
         worker.join(timeout=2)
         httpd.server_close()
 
