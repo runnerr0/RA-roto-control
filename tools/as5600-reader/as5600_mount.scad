@@ -117,9 +117,9 @@ module ghost_magnet() { color("red")   translate([0,0,-magnet_th]) cylinder(d=ma
 module ghost_shaft()  { color("silver")translate([0,0,-carrier_h-20]) cylinder(d=shaft_d, h=carrier_h+20); }
 module ghost_board()  { color("green") translate([-board_sz/2,-board_sz/2, air_gap]) cube([board_sz,board_sz,board_th]); }
 
-if (part == "carrier")      magnet_carrier();
-else if (part == "holder")  translate([0,0, pilot_h]) sensor_holder();   // print seat-face down
-else if (part == "gauge")   gap_gauge();
+if (part == "carrier")      magnet_carrier();                              // print: shaft-bore down, pilot up
+else if (part == "holder")  rotate([180,0,0]) translate([0,0,-air_gap]) sensor_holder();  // print: board-plate flat down, hub up
+else if (part == "gauge")   gap_gauge();                                   // print: flat
 else {
   translate([0,0,-carrier_h]) magnet_carrier();   // magnet top -> z 0
   ghost_magnet(); %ghost_shaft(); %ghost_board();
