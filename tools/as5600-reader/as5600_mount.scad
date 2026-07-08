@@ -21,7 +21,7 @@ air_gap       = 2.5;      // magnet top -> board chip-side face. Chip body pokes
 /* ---------- shaft (rotating) ---------- */
 shaft_d       = 12.7;     // [MEASURE] 1/2" tip
 shaft_engage  = 16;
-shaft_fit     = 0.35;
+shaft_fit     = 0.45;     // ABS-friendly bore clearance (tune to your printer)
 wall          = 3.2;
 set_screw_d   = 3.2;      // M3 grub
 set_screw_z   = 8;
@@ -29,13 +29,13 @@ set_screw_z   = 8;
 /* ---------- magnet (5 x 2 DIAMETRIC) ---------- */
 magnet_d      = 5.0;
 magnet_th     = 2.0;
-magnet_fit    = 0.15;
+magnet_fit    = 0.25;     // ABS-friendly pocket clearance
 magnet_recess = 0.3;
 
 /* ---------- register pilot + shoulder (the spacer interface) ---------- */
 pilot_d       = 11.0;     // pilot the holder cups over (> magnet, gives a clean register)
 pilot_h       = 7.0;      // pilot height above the shoulder (magnet pocket + register length)
-hub_fit       = 0.4;      // radial running clearance: holder bore over pilot
+hub_fit       = 0.5;      // radial running clearance (ABS-friendly): holder bore over pilot
 hub_wall      = 2.6;      // holder hub wall
 
 /* ---------- AS5600 board (23 x 23, chip centered, holes 16mm c-c, 3.5mm) ---------- */
