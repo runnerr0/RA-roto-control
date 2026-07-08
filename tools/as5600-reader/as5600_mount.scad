@@ -21,6 +21,8 @@ air_gap       = 2.5;      // magnet top -> board chip-side face. Chip body pokes
 /* ---------- shaft (rotating) ---------- */
 shaft_d       = 12.7;     // [MEASURE] 1/2" tip
 shaft_engage  = 16;
+bore_floor    = 3.0;      // SOLID floor above the shaft bore that ties the pilot to the body
+                          //   (the bore is wider than the pilot, so this connection is required)
 shaft_fit     = 0.45;     // ABS-friendly bore clearance (tune to your printer)
 wall          = 3.2;
 set_screw_d   = 3.2;      // M3 grub
@@ -53,7 +55,7 @@ ear_hole_d    = 5.4;      // M5 clearance
 
 eps = 0.02;  $fn = 96;
 carrier_od = shaft_d + 2*wall;
-body_h     = shaft_engage;                 // native carrier body height (grips the shaft)
+body_h     = shaft_engage + bore_floor;    // body = shaft grip + solid floor under the pilot
 carrier_h  = body_h + pilot_h;             // native total
 hub_bore   = pilot_d + 2*hub_fit;
 hub_od     = pilot_d + 2*hub_fit + 2*hub_wall;
