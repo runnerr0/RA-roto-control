@@ -38,6 +38,25 @@ control path.
 - Always verify UI changes by rendering in a **real browser** (screenshots), not
   just reading code.
 
+## Running live (on hardware)
+
+- **Launch with `--lan`** so the console binds `0.0.0.0` and is reachable from
+  other devices: `python3 tools/roto-bench/roto_bench.py --lan` (plus
+  `--encoder PORT --gear R` if using the encoder). Then browse to
+  `http://<host-lan-ip>:8791`.
+- **Default (no `--lan`) binds `127.0.0.1` only** — reachable from the host
+  itself but **refuses** every connection from a laptop/phone/tablet. Symptom:
+  `ping` to the host succeeds but the port gives **"Connection refused"** (an
+  instant fail, not a timeout) → it's loopback-bound; relaunch with `--lan`.
+  (Also try `http://localhost:8791` when sitting at the host to confirm it's up.)
+- **Restarting the live console is safe but stops the motor:** it drops the
+  continuous `!G` stream, so the HDC2450 `^RWD` watchdog self-stops. It returns
+  **disarmed, commanding 0** — restart only when a brief motor stop is OK.
+- **`--lan` exposes full motor control to the whole network.** Fine on a trusted
+  event LAN; `/remote` is monitor + E-STOP, the main page is full control.
+- To actually drive after connecting: serial link up (HDC2450 on USB) → **ARM** →
+  not E-STOP/tripped.
+
 ## Validation gauntlet (run before claiming anything works)
 
 ```
