@@ -108,6 +108,8 @@ class State:
         self.drift_tb = 10.0             # Side B hold time (s)
         self.drift_ramp = 2.0            # ramp time between sides (s)
         self.drift_phase = "holdA"       # live phase (for the UI instrument)
+        self.drift_center = 0.0          # baseline the A/B swing rides on; captured from the command
+                                         # on DRIFT entry (e.g. your HOLD position). 0 = absolute drift.
         self.expected = {"ALIM 1": "50", "RWD": "500", "AINA 3": "0", "AINA 4": "0"}
         self.mon = {}                    # live values of the drift-watched params
         # --- current governor: feather the command to hold amps just under the limit --- #
@@ -191,6 +193,7 @@ class State:
                 "run_mode": self.run_mode,
                 "drift_a": self.drift_a, "drift_ta": self.drift_ta, "drift_b": self.drift_b,
                 "drift_tb": self.drift_tb, "drift_ramp": self.drift_ramp, "drift_phase": self.drift_phase,
+                "drift_center": self.drift_center,
                 "expected": dict(self.expected), "mon": dict(self.mon),
                 "creep_kick": self.creep_kick, "creep_kick_ms": self.creep_kick_ms,
                 "gov_on": self.gov_on, "gov_frac": self.gov_frac,
@@ -593,6 +596,7 @@ class Worker(threading.Thread):
                     run_mode = self.state.run_mode
                     drift_a, drift_ta = self.state.drift_a, self.state.drift_ta
                     drift_b, drift_tb, drift_ramp = self.state.drift_b, self.state.drift_tb, self.state.drift_ramp
+                    drift_center = self.state.drift_center
                     armed, estop, tripped = self.state.armed, self.state.estop, self.state.tripped
                     trip_amps, trip_ms = self.state.trip_amps, self.state.trip_ms
                     temp_trip, heat_budget, heat_now = self.state.temp_trip, self.state.heat_budget, self.state.heat_now
@@ -681,6 +685,9 @@ class Worker(threading.Thread):
                     # two-phase drift: hold A for ta, ramp to B, hold B for tb, ramp back to A
                     if prev_mode != "drift":             # (re)entered drift -> restart cycle
                         drift_phase, drift_t0 = "holdA", now
+                        drift_center = applied           # center the swing on the command we came in on (e.g. HOLD)
+                        with self.state.lock:
+                            self.state.drift_center = drift_center
                     dur = {"holdA": drift_ta, "rampAB": drift_ramp,
                            "holdB": drift_tb, "rampBA": drift_ramp}
                     nxt = {"holdA": "rampAB", "rampAB": "holdB", "holdB": "rampBA", "rampBA": "holdA"}
@@ -700,6 +707,7 @@ class Worker(threading.Thread):
                     else:                                  # rampBA
                         f = min(1.0, el / drift_ramp) if drift_ramp > 0 else 1.0
                         src = drift_b + (drift_a - drift_b) * f
+                    src = clamp(drift_center + src, -cap, cap)   # ride the swing on the captured center (HOLD)
                     with self.state.lock:
                         self.state.drift_phase = drift_phase
                 else:
@@ -1129,6 +1137,10 @@ class Handler(BaseHTTPRequestHandler):
                 st.drift_tb = clamp(self._num(q, "tb", st.drift_tb), 0.1, 600)
                 st.drift_ramp = clamp(self._num(q, "ramp", st.drift_ramp), 0, 60)
                 st.stopped = False                       # Run drift: apply the pattern and start/resume it
+            self._json({"ok": True})
+        elif u.path == "/api/driftcenter":               # set/zero the drift center WITHOUT starting the drift
+            with st.lock:
+                st.drift_center = clamp(self._num(q, "v", st.drift_center), -1000, 1000)
             self._json({"ok": True})
         elif u.path == "/api/reapply":
             with st.lock:

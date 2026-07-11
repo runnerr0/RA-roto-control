@@ -169,6 +169,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
    <button id=dApply class=arm title="Apply the Side A/B pattern and START/RESUME the drift. Press Stop (below) to halt it.">▶ Run drift</button>
    <span class="pill warn" id=dphase>—</span>
   </div>
+  <div class=cap2 id=dcenterrow style="margin-top:6px">Center (drift zero): <b id=dcenterv>0%</b> — captured from your HOLD command when you enter DRIFT; Side A/B swing around it. <button id=dcenter0 class=clr title="Reset the drift center to 0 — absolute drift with no offset.">zero</button></div>
   <canvas id=cdrift style="height:64px;margin-top:8px"></canvas>
   <div class=cap2 id=drifttxt></div>
  </div>
@@ -452,6 +453,7 @@ $('logbtn').onclick=()=>api('/api/log?on='+((S&&S.logging)?0:1)+'&div='+$('logra
 $('dA_spd').addEventListener('input',e=>{$('dA_spdv').textContent=e.target.value+'%';paintBi(e.target)});
 $('dB_spd').addEventListener('input',e=>{$('dB_spdv').textContent=e.target.value+'%';paintBi(e.target)});
 $('dApply').onclick=()=>api('/api/drift?a='+toRaw($('dA_spd').value)+'&ta='+$('dA_t').value+'&b='+toRaw($('dB_spd').value)+'&tb='+$('dB_t').value+'&ramp='+$('dRamp').value);
+$('dcenter0').onclick=()=>api('/api/driftcenter?v=0');
 
 // ---- top bar: guide + help mode ----
 $('guidebtn').onclick=()=>window.open('/guide','_blank');
@@ -527,7 +529,8 @@ function drawAdv(){const c=$('cadv'),x=c.getContext('2d'),W=c.width=c.clientWidt
   x.stroke()});x.lineWidth=1}
 // ---- two-phase drift: setpoints + live position + phase ----
 function drawDrift(s){const c=$('cdrift'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height;x.clearRect(0,0,W,H);
- const a=D(s.drift_a,0),b=D(s.drift_b,0),cur=D(s.applied,0),ph=D(s.drift_phase,'');
+ const cn=D(s.drift_center,0),a=cn+D(s.drift_a,0),b=cn+D(s.drift_b,0),cur=D(s.applied,0),ph=D(s.drift_phase,'');
+ $('dcenterv').textContent=toPct(cn)+'%';
  const span=1000*1.08,midY=H*0.5;
  const X=v=>W/2+(v/span)*(W/2-12);
  x.strokeStyle='#30363d';x.beginPath();x.moveTo(0,midY);x.lineTo(W,midY);x.stroke();
@@ -538,12 +541,13 @@ function drawDrift(s){const c=$('cdrift'),x=c.getContext('2d'),W=c.width=c.clien
   x.fillStyle=col;x.font=(on?'bold ':'')+'11px monospace';x.fillText(lbl+' '+toPct(v)+'%',px-10,midY-22)};
  setpoint(a,'#58a6ff','A',ph==='holdA');
  setpoint(b,'#d2a8ff','B',ph==='holdB');
+ if(cn!==0){const cx=X(cn);x.strokeStyle='#e3b341';x.setLineDash([3,3]);x.beginPath();x.moveTo(cx,midY-14);x.lineTo(cx,midY+14);x.stroke();x.setLineDash([]);x.fillStyle='#e3b341';x.font='10px monospace';x.fillText('center',cx-15,midY+30);}   // captured drift center
  x.fillStyle='#3fb950';x.beginPath();x.arc(X(cur),midY,6,0,2*Math.PI);x.fill();   // live command
  const phName={holdA:'holding A',rampAB:'ramping A→B',holdB:'holding B',rampBA:'ramping B→A'}[ph]||'—';
  const pill=$('dphase');
  if(s.stopped){pill.textContent='■ stopped';pill.className='pill bad';}
  else{pill.textContent=phName;pill.className='pill '+((ph==='holdA'||ph==='holdB')?'ok':'warn');}
- $('drifttxt').innerHTML='Drives <b>A</b> at '+toPct(a)+'% for '+D(s.drift_ta,'?')+' s, then <b>B</b> at '+toPct(b)+'% for '+D(s.drift_tb,'?')+' s, '+D(s.drift_ramp,'?')+' s ramp. Green dot = command now; blue tick = A, purple tick = B.';
+ $('drifttxt').innerHTML='Center <b>'+toPct(cn)+'%</b> · drives <b>A</b> at '+toPct(a)+'% for '+D(s.drift_ta,'?')+' s, then <b>B</b> at '+toPct(b)+'% for '+D(s.drift_tb,'?')+' s, '+D(s.drift_ramp,'?')+' s ramp. Green dot = command now; blue = A, purple = B, amber = center.';
 }
 function drawSweep(res,breakaway){const c=$('cswp'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height,PADL=34,PADB=18;x.clearRect(0,0,W,H);
  x.strokeStyle='#30363d';x.beginPath();x.moveTo(PADL,H-PADB);x.lineTo(W,H-PADB);x.moveTo(PADL,4);x.lineTo(PADL,H-PADB);x.stroke();
