@@ -169,7 +169,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
    <button id=dApply class=arm title="Apply the Side A/B pattern and START/RESUME the drift. Press Stop (below) to halt it.">▶ Run drift</button>
    <span class="pill warn" id=dphase>—</span>
   </div>
-  <div class=cap2 id=dcenterrow style="margin-top:6px">Center (drift zero): <b id=dcenterv>0%</b> — captured from your HOLD command when you enter DRIFT; Side A/B swing around it. <button id=dcenter0 class=clr title="Reset the drift center to 0 — absolute drift with no offset.">zero</button></div>
+  <div class=cap2 id=dcenterrow style="margin-top:6px">Center (drift zero): <b id=dcenterv>0%</b> · set <input id=dcenterin class=num type=number min=-100 max=100 step=1 value=0 style="width:58px" title="Type the drift center directly (%). Also auto-captured from your HOLD command when you enter DRIFT; Side A/B swing around it."> % <button id=dcenterset class=clr title="Apply the typed center.">set</button> <button id=dcenter0 class=clr title="Reset the center to 0 — absolute drift, no offset.">zero</button> <span class=sub>— Side A/B swing around it.</span></div>
   <canvas id=cdrift style="height:64px;margin-top:8px"></canvas>
   <div class=cap2 id=drifttxt></div>
  </div>
@@ -477,6 +477,7 @@ $('dA_spd').addEventListener('input',e=>{$('dA_spdv').textContent=e.target.value
 $('dB_spd').addEventListener('input',e=>{$('dB_spdv').textContent=e.target.value+'%';paintBi(e.target)});
 $('dApply').onclick=()=>api('/api/drift?a='+toRaw($('dA_spd').value)+'&ta='+$('dA_t').value+'&b='+toRaw($('dB_spd').value)+'&tb='+$('dB_t').value+'&ramp='+$('dRamp').value);
 $('dcenter0').onclick=()=>api('/api/driftcenter?v=0');
+$('dcenterset').onclick=()=>api('/api/driftcenter?v='+toRaw($('dcenterin').value));
 
 // ---- top bar: guide + help mode ----
 $('guidebtn').onclick=()=>window.open('/guide','_blank');
@@ -554,6 +555,7 @@ function drawAdv(){const c=$('cadv'),x=c.getContext('2d'),W=c.width=c.clientWidt
 function drawDrift(s){const c=$('cdrift'),x=c.getContext('2d'),W=c.width=c.clientWidth,H=c.height;x.clearRect(0,0,W,H);
  const cn=D(s.drift_center,0),a=cn+D(s.drift_a,0),b=cn+D(s.drift_b,0),cur=D(s.applied,0),ph=D(s.drift_phase,'');
  $('dcenterv').textContent=toPct(cn)+'%';
+ if(document.activeElement!==$('dcenterin'))$('dcenterin').value=toPct(cn);   // reflect captured center unless typing
  const span=1000*1.08,midY=H*0.5;
  const X=v=>W/2+(v/span)*(W/2-12);
  x.strokeStyle='#30363d';x.beginPath();x.moveTo(0,midY);x.lineTo(W,midY);x.stroke();
