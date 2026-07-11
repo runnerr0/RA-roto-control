@@ -101,6 +101,8 @@ Fastest / most-local first — a fault stops the motor, it doesn't run it:
    limit for `trip_ms` → stop + disarm.
 6. **Temperature trip** — max controller temp ≥ threshold → stop. Jam/hold agnostic.
 7. **I²t overload trip** — leaky current²·time budget → stop. Catches "holding too hard, too long."
+   On by default; the **I²t checkbox** in Settings → Protect disables it (the budget value is kept, the
+   accumulator clears) when the proxy fights a legitimately heavy load — temperature stays the real guard.
 8. **TRUE STALL trip** *(optional encoder)* — commanded ≥ 10% but the shaft reads ~0 RPM → stop.
    Suppressed in HOLD/CREEP (which legitimately sit near 0 RPM). See the encoder section.
 9. **Control-drift alarm** — see below.

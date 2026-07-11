@@ -84,7 +84,8 @@ function poll(){api('/api/state',function(s){
  g+=tile('5V rail',n1(s.tele.volts_5v),'V','logic supply');
  g+=tile('Temp',tmax==null?'—':tmax,'°C',tempSub,tempCls);
  g+=tile('Current limit',n1(lim),'A','ALIM foldback');
- g+=tile('I²t heat',hpct+'%','','motor-heat budget '+Math.round(hn)+' / '+Math.round(hb),heatCls);
+ var i2tOff=(s.heat_on===false||hb<=0);
+ g+=tile('I²t heat',i2tOff?'off':hpct+'%','',i2tOff?'motor-heat trip disabled':'motor-heat budget '+Math.round(hn)+' / '+Math.round(hb),i2tOff?'':heatCls);
  g+=tile('Status',flags,'',(s.armed?'armed':'disarmed')+(s.connected?'':' · no link'),'wide');
  g+=tile('Faults',faults,'','',faults==='none'?'wide':'wide crit');
  $('grid').innerHTML=g;

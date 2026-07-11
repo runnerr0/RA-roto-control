@@ -201,7 +201,7 @@ summary{cursor:pointer;font-weight:600}details p,details li{font-size:13px;color
   </div>
   <div class="row" style="margin-top:10px">
    <span class=sub title="Always on, incl. HOLD. Temp is the real damage signal; I2t catches sustained heavy current.">Protect:</span>
-   temp <input id=ttemp class=num type=number min=0 step=1 value=70 title="Temperature trip (°C). Controller heatsink over this = stop. Note: this reads the controller, not the motor winding."> °C · I²t <input id=theat class=num type=number min=0 step=50 value=600 title="I²t motor-heat budget (A²·s). Sustained heavy current accumulates to this, then trips — the proxy for motor winding heat."> A²s <button id=pset class=clr title="Apply the temperature and I²t protection limits.">Apply</button>
+   temp <input id=ttemp class=num type=number min=0 step=1 value=70 title="Temperature trip (°C). Controller heatsink over this = stop. Note: this reads the controller, not the motor winding."> °C · <label class=sub title="Uncheck to DISABLE the I²t motor-heat trip (the budget value is preserved). Temperature stays the real guard."><input type=checkbox id=i2ton checked> I²t</label> <input id=theat class=num type=number min=0 step=50 value=600 title="I²t motor-heat budget (A²·s). Sustained heavy current accumulates to this, then trips — the proxy for motor winding heat. Uncheck the box to disable this trip entirely."> A²s <button id=pset class=clr title="Apply the temperature and I²t protection settings.">Apply</button>
   </div>
   <div class="row" style="margin-top:10px">
    <span class=sub title="DEFAULT ON. Closed loop on motor current: feathers the command DOWN to hold amps just under a fraction of the current limit — so the motor rides the ceiling smoothly instead of slamming into the hard limit / stall trip and breaking free. Turn off to let the command reach the full limit. Suppressed during the lift test / sweep.">Current governor</span>
@@ -411,7 +411,7 @@ $('es').onclick=()=>{$('sl').value=0;setCmd(0);api('/api/estop')};
 $('clr').onclick=()=>api('/api/clear');
 $('cap').onchange=e=>{api('/api/cap?v='+toRaw(e.target.value));applyCap();};
 $('tset').onclick=()=>api('/api/trip?amps='+$('tamps').value+'&ms='+$('tms').value);
-$('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('theat').value);
+$('pset').onclick=()=>api('/api/protect?temp='+$('ttemp').value+'&heat='+$('theat').value+'&i2t='+($('i2ton').checked?1:0));
 $('govset').onclick=()=>api('/api/governor?on='+($('govon').checked?1:0)+'&frac='+($('govfrac').value/100));
 $('rtrip').onclick=()=>api('/api/resettrip');
 $('flash').onclick=()=>api('/api/config_flash');
@@ -653,7 +653,7 @@ function poll(){api('/api/state').then(s=>{if(!s)return; S=s;
  $('h_sg').textContent=(nomV&&t.volts_batt!=null)?'-'+(nomV-v).toFixed(1)+' V':'—';
  const tp=(t.temp&&t.temp.length)?Math.max(...t.temp):null;$('h_tp').textContent=(tp!=null)?tp+'°C':'—';
  $('h_rt').textContent=runStart?fmtDur(performance.now()-runStart):'idle';
- $('h_ht').textContent=(s.heat_budget>0)?Math.round(100*s.heat_now/s.heat_budget)+'%':'off';
+ $('h_ht').textContent=(s.heat_on!==false&&s.heat_budget>0)?Math.round(100*s.heat_now/s.heat_budget)+'%':'off';
  drawMotion();drawLoad();drawAdv();agLegend(t);if(s.run_mode==='drift')drawDrift(s);deriveAlerts(s,t);
  // sweep
  $('swstat').textContent=D(s.sweep_status,'idle')+(s.sweep_active?(' · '+Math.round((s.sweep_progress||0)*100)+'%'):'');

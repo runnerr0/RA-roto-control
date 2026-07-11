@@ -14,7 +14,8 @@ Safety model (layered):
       - Overcurrent / STALL: amps held >= trip_amps for trip_ms. RUN intent only
         (in HOLD, holding current is expected -> stall trip suppressed).
       - TEMPERATURE: max controller temp >= temp_trip. Always on. Jam/hold agnostic.
-      - I2t OVERLOAD: leaky current^2 * time accumulator >= heat_budget. Always on.
+      - I2t OVERLOAD: leaky current^2 * time accumulator >= heat_budget. On by default;
+        can be DISABLED (heat_on=False, the I²t checkbox in Protect) — temperature stays the guard.
         Catches "holding too hard too long" AND jams without needing to know which.
   * Command forced 0 unless armed & !estop & !tripped & (momentary: browser fresh).
   * PROFILE EDIT: the UI can write controller config (^KEY) live, RAM-only, verified
@@ -127,6 +128,7 @@ class State:
         self.trip_ms = TRIP_MS_DEFAULT
         self.temp_trip = TEMP_TRIP_DEFAULT
         self.heat_budget = HEAT_BUDGET_DEFAULT
+        self.heat_on = True              # I2t motor-heat check enabled (toggle in Protect)
         self.heat_now = 0.0
         self.last_contact = 0.0
         self.connected = False
@@ -198,6 +200,7 @@ class State:
                 "tripped": self.tripped, "trip_reason": self.trip_reason,
                 "trip_amps": self.trip_amps, "trip_ms": self.trip_ms,
                 "temp_trip": self.temp_trip, "heat_budget": self.heat_budget,
+                "heat_on": self.heat_on,
                 "heat_now": round(self.heat_now, 1), "amp_limit": round(live_lim, 1),
                 "connected": self.connected, "deadman": self.deadman,
                 "enc_enabled": self.enc_enabled, "enc_port": self.enc_port,
@@ -593,6 +596,7 @@ class Worker(threading.Thread):
                     armed, estop, tripped = self.state.armed, self.state.estop, self.state.tripped
                     trip_amps, trip_ms = self.state.trip_amps, self.state.trip_ms
                     temp_trip, heat_budget, heat_now = self.state.temp_trip, self.state.heat_budget, self.state.heat_now
+                    heat_on = self.state.heat_on
                     deadman = (now - self.state.last_contact) > DEADMAN_S
                     temps = self.state.tele.get("temp") or []
                     at_limit = bool(self.state.tele.get("at_limit"))
@@ -623,8 +627,8 @@ class Worker(threading.Thread):
                 amps, amps_raw = self._sample_amps()
                 trip_reason = None
 
-                # I2t leaky accumulator (both intents)
-                if amps is not None and heat_budget > 0:
+                # I2t leaky accumulator (both intents). heat_on=False disables the check entirely.
+                if amps is not None and heat_on and heat_budget > 0:
                     heat_now = max(0.0, heat_now + (amps * amps - HEAT_BASELINE ** 2) * CMD_PERIOD)
                     if heat_now >= heat_budget:
                         trip_reason = f"I2t overload: heat {heat_now:.0f} >= {heat_budget:.0f} A2s"
@@ -1158,6 +1162,9 @@ class Handler(BaseHTTPRequestHandler):
             with st.lock:
                 st.temp_trip = clamp(self._num(q, "temp", st.temp_trip), 0, 150)
                 st.heat_budget = clamp(self._num(q, "heat", st.heat_budget), 0, 100000)
+                st.heat_on = q.get("i2t", ["1" if st.heat_on else "0"])[0] == "1"
+                if not st.heat_on:
+                    st.heat_now = 0.0    # clear the accumulator so it doesn't show a stale value
             self._json({"ok": True})
         elif u.path == "/api/governor":
             with st.lock:
