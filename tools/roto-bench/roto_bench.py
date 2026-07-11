@@ -37,6 +37,10 @@ import time
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+try:
+    from audio_sense import AudioSensor       # optional mic-energy sensor (audio-reactive motion)
+except Exception:
+    AudioSensor = None
 
 try:
     from http.server import ThreadingHTTPServer            # Python 3.7+
@@ -148,6 +152,13 @@ class State:
         self.enc_stall = False           # TRUE STALL: commanded but shaft not moving
         self.enc_last = 0.0              # time of the last encoder line (for staleness)
         self.enc_line = ""               # raw last line, for the debug panel
+        self.audio_enabled = False       # user toggle: capture the host mic
+        self.audio_device = -1           # input device index (-1 = system default)
+        self.audio_gain = 1.5            # sensitivity on the normalised signal
+        self.audio_floor = 0.08          # noise gate on the normalised signal (0..1)
+        self.audio_level = 0.0           # smoothed energy envelope 0..1 (the reactive signal)
+        self.audio_present = False       # capture stream alive + reporting
+        self.audio_rms = 0.0             # raw RMS (diagnostics / tuning)
         self.profile = {}                # last-read controller config values
         self.config_queue = []           # pending {key,idx,val} or {flash:True}
         self.config_log = []             # recent write results
@@ -212,6 +223,11 @@ class State:
                 "enc_fixture_rpm": round(self.enc_rpm / self.enc_ratio, 2) if self.enc_ratio else 0.0,
                 "enc_pos": self.enc_pos, "enc_mag": self.enc_mag, "enc_stall": self.enc_stall,
                 "enc_line": self.enc_line,
+                "audio_available": (AudioSensor is not None and AudioSensor.available),
+                "audio_enabled": self.audio_enabled, "audio_device": self.audio_device,
+                "audio_gain": self.audio_gain, "audio_floor": self.audio_floor,
+                "audio_level": self.audio_level, "audio_present": self.audio_present,
+                "audio_rms": self.audio_rms,
                 "tele": dict(self.tele), "profile": dict(self.profile),
                 "config_log": list(self.config_log[:8]),
                 "sweep_active": self.sweep_active, "sweep_status": self.sweep_status,
@@ -1124,6 +1140,17 @@ class Handler(BaseHTTPRequestHandler):
                     st.enc_ratio = clamp(self._num(q, "ratio", st.enc_ratio), 0.1, 10000)
                 st.enc_enabled = q.get("on", ["1" if st.enc_enabled else "0"])[0] == "1"
             self._json({"ok": True})
+        elif u.path == "/api/audio":                 # optional mic energy for audio-reactive motion
+            with st.lock:
+                if "device" in q:
+                    st.audio_device = int(self._num(q, "device", st.audio_device))
+                st.audio_gain = clamp(self._num(q, "gain", st.audio_gain), 0.1, 10)
+                st.audio_floor = clamp(self._num(q, "floor", st.audio_floor), 0, 0.9)
+                st.audio_enabled = q.get("on", ["1" if st.audio_enabled else "0"])[0] == "1"
+            self._json({"ok": True})
+        elif u.path == "/api/audio_devices":         # input devices for the dropdown
+            devs = AudioSensor.input_devices() if AudioSensor is not None else []
+            self._json({"devices": devs})
         elif u.path == "/api/serial_ports":          # candidate ports for the encoder dropdown
             ports = []
             for pat in PORT_GLOBS:
@@ -1351,6 +1378,8 @@ def main():
     worker.start()
     encoder = EncoderReader(state)            # always running; idle until enabled in the UI
     encoder.start()
+    if AudioSensor is not None and AudioSensor.available:
+        AudioSensor(state).start()            # optional mic sensor; idle until enabled in the UI
 
     Handler.state = state
     httpd = ThreadingHTTPServer((args.host, args.webport), Handler)
